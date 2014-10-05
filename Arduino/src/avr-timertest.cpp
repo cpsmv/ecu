@@ -3,30 +3,44 @@
 #include <avr/interrupt.h>
 #define ledPin 13
 
-int main()
-{
-  pinMode(ledPin, OUTPUT);
+const unsigned int prescalers[] = {
+  0, 1, 8, 64, 256, 1024};
   
-  // initialize timer1 
-  noInterrupts();           // disable all interrupts
-  TCCR1A = 0;  // no config settings in this register
-  TCCR1B = 0;  // init to zero but waiting for config settings
-  TCNT1  = 0;  // init timer 1 counter to zero
+unsigned int q,i;
 
-  OCR1A = 65535;            // compare match register 16MHz/256/2Hz
-  TCCR1B |= (1 << WGM12);   // CTC mode
-  TCCR1B |= (1 << CS02) | (1 << CS00);    // 1024 prescaler 
-  TIMSK1 |= (1 << OCIE1A);  // enable timer compare interrupt
-  interrupts();             // enable all interrupts
-  Serial.begin(115200);
-
-  while(1) {
-    Serial.println("test");
+void configTimer(long m) {
+  noInterrupts();
+  TCCR1A = 0;
+  TCCR1B = 0 | (1 << WGM12);
+  TCNT1 = 0;
+  TIMSK1 |= (1<<OCIE1A);
+  for(i=1;i<6;i++) {
+    if(m/prescalers[i]*16 < 65535) {
+      TCCR1B |= i;	
+      q = OCR1A = m/prescalers[i]*16;
+      break;
+    }
   }
+  interrupts();
 }
 
-ISR(TIMER1_COMPA_vect)          // timer compare interrupt service routine
-{
-  digitalWrite(ledPin, !digitalRead(ledPin));
-  if(OCR1A > 1000) OCR1A /=2 ;   // toggle LED pin
+int main() {
+  pinMode(ledPin, OUTPUT);
+  Serial.begin(115200);
+  Serial.println("SUP");
+  // initialize timer1
+  configTimer(1000000); // configure timer for 1 s
+  
+  Serial.print("regster set to ");
+  Serial.println(q);
+  Serial.print("prescaler set to ");
+  Serial.println(prescalers[i]);
+
+  while(1);
 }
+
+ISR(TIMER1_COMPA_vect) {
+ digitalWrite(ledPin, digitalRead(ledPin) ^ 1); 
+}
+
+

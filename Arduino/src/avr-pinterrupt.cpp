@@ -10,7 +10,7 @@ void interruptlol(){
     digitalWrite(ledPin, state=!state);
 }
 
-int main()
+int qmain()
 {
   state = LOW;
   pinMode(intPin, INPUT);
