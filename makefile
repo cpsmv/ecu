@@ -80,7 +80,7 @@ bin:
 	@mv *.o* $(TARGET_MODE)/
 	$(LD) ${LDFLAGS} ${LPATH} -o $(TARGET_MODE)/$(APPNAME).out \
           -Map $(TARGET_MODE)/$(APPNAME).map $(TARGET_MODE)/*.o* \
-          $(APP_LIB) -lc -lgcc $(APP_LIB) $(RUNTIMELIB) -T $(APPNAME).lds
+          $(APP_LIB) -lc -lgcc $(APP_LIB) $(RUNTIMELIB) -T build.lds
 	@mkdir -p $(APP_BIN)/$(TARGET_MODE)
 	@cp $(TARGET_MODE)/$(APPNAME).out $(APP_BIN)/$(TARGET_MODE)/$(APPNAME).out
 	$(BIN) $(BINFLAGS) $(APP_BIN)/$(TARGET_MODE)/$(APPNAME).out \
