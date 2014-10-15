@@ -12,5 +12,8 @@ int main(void)
 
 */
 
+#define TIMER_AUTORELOAD_ENABLE 	(0x00000002u)
+#define TIMER_AUTORELOAD_DISABLE 	(0x00000000u)
+
 void initTimers();
-void configTimer(int timer, unsigned int microseconds, void (*callback)());
+void configTimer(int timer, unsigned int microseconds, unsigned int autoReload, void (*callback)());

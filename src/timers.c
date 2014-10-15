@@ -22,7 +22,7 @@ void initTimers()
 	IntAINTCInit();
 }
 
-void configTimer(int timer, unsigned int microseconds, void (*callback)()) 
+void configTimer(int timer, unsigned int microseconds, unsigned int autoReload, void (*callback)()) 
 {
 	unsigned int interrupt;
 	unsigned int registers;
@@ -76,11 +76,35 @@ void configTimer(int timer, unsigned int microseconds, void (*callback)())
     DMTimerReloadSet(registers, TIMER_CONVERT(microseconds));
 
     /* Configure the DMTimer for Auto-reload and compare mode */
-    DMTimerModeConfigure(registers, DMTIMER_AUTORLD_NOCMP_ENABLE);
+    DMTimerModeConfigure(registers, reload);
 
     DMTimerIntEnable(registers, DMTIMER_INT_OVF_EN_FLAG);
 
     DMTimerEnable(registers);
+}
+
+void freezeTimer(int timer)
+{
+    switch(timer) {
+        case 0: 
+            DMTimerDisable(SOC_DMTIMER_2_REGS);
+            break;
+        case 1: 
+            DMTimerDisable(SOC_DMTIMER_3_REGS);
+            break;
+        case 2: 
+            DMTimerDisable(SOC_DMTIMER_4_REGS);
+            break;
+        case 3: 
+            DMTimerDisable(SOC_DMTIMER_6_REGS);
+            break;
+        case 4: 
+            DMTimerDisable(SOC_DMTIMER_7_REGS);
+    }
+}
+
+unsigned long getTime(int timer) {
+    // write code to return the value of the timer counter in microseconds
 }
 
   
