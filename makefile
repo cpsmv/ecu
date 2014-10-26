@@ -88,7 +88,7 @@ bin:
 	cd $(ROOT)/tools/ti_image/; gcc tiimage.c -o a.out; cd - 
 	       $(ROOT)/tools/ti_image/a.out $(IMG_LOAD_ADDR) NONE \
                $(APP_BIN)/$(TARGET_MODE)/$(APPNAME).bin \
-               $(APP_BIN)/$(TARGET_MODE)/$(APPNAME)_ti.bin; rm -rf $(ROOT)/tools/ti_image/a.out;
+               $(APP_BIN)/$(TARGET_MODE)/app; rm -rf $(ROOT)/tools/ti_image/a.out;
 	@rm -rf $(ROOT)/Debug $(ROOT)/Release;
 
 #
