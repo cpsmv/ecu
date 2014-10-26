@@ -7,7 +7,7 @@
 #include "pin_mux.h"
 
 
-#define TIMER_CONVERT_US(microsec)  (0xFFFFFFFFu-(microsec*24u))
+#define TIMER_CONVERT_US(microsec)  (0xFFFFFFFFu-((microsec)*24u))
 
 #define DMTimerWaitForWrite(reg, baseAdd)   \
             if(HWREG(baseAdd + DMTIMER_TSICR) & DMTIMER_TSICR_POSTED)\
@@ -62,15 +62,15 @@ static void (*timerClkConfigs[5])() = {
 // Keeps track of the functions that should be called when the timer expires
 static void (*callbacks[5])();
 
-// Keeps track of the initial value so that we can calculate the elapsed time
+// Keeps track of the initial value so that we can calculate the elapsed
 static unsigned int initValues[5];
 
 
 void initTimers() 
 {
-    /* Enable global interrupts */
+    /* Enable CPU interrupts */
 	CPUirqe();
-    /* Enable the interrupt controller */
+    /* Initialize the interrupt controller */
 	IntAINTCInit();
 }
 
@@ -80,7 +80,7 @@ void runTimer(int timer, unsigned int interval) {
     HWREG(timerRegs[timer] + DMTIMER_TCLR) &= ~DMTIMER_TCLR_ST;
 
     /* Set the counter value */
-    HWREG(timerRegs[timer] + DMTIMER_TCRR) = initValues[timer]=TIMER_CONVERT_US(interval-5);
+    HWREG(timerRegs[timer] + DMTIMER_TCRR) = initValues[timer]=TIMER_CONVERT_US(interval);
 
     /* Load the register with the re-load value */
     HWREG(timerRegs[timer] + DMTIMER_TLDR) = TIMER_CONVERT_US(interval);
@@ -95,13 +95,13 @@ void configTimer(int timer, unsigned int autoReload, void (*callback)())
     /* Configure the timer clocks */
 	timerClkConfigs[timer]();
 
-    /* Register the ISR to the interrupt */
+    /* Register the ISR with the interrupt */
 	IntRegister(timerInts[timer],timerISRs[timer]);
 
-    /* Set the desired callback */
+    /* Set the desired callback function */
 	callbacks[timer] = callback;
 
-    /* Set the interrupt priority in order by timer */
+    /* Set the priority */
     HWREG(SOC_AINTC_REGS + INTC_ILR(timerInts[timer])) =
                                  ((timer << INTC_ILR_PRIORITY_SHIFT)
                                    & INTC_ILR_PRIORITY)
