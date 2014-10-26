@@ -30,7 +30,8 @@ void func2()
 	// high = !high;
 	freezeTimer(TIMER0);
 	length = getElapsedTime(TIMER0);
-	configTimer(TIMER0, 1000000, TIMER_AUTORELOAD_DISABLE, func1);
+	runTimer(TIMER0, 1000000);
+
 }
 
 int main() {
@@ -54,7 +55,10 @@ int main() {
 
 	initTimers();
 	
-	configTimer(TIMER2, 100000, TIMER_AUTORELOAD_ENABLE, func2);
+	configTimer(TIMER0, TIMER_AUTORELOAD_DISABLE, func1);
+	configTimer(TIMER1, TIMER_AUTORELOAD_ENABLE, func2);
+
+	runTimer(TIMER1, 100000);
 
 	while(1) {
 		for(i=0;i<10000;i++);

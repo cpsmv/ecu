@@ -25,6 +25,7 @@ enum TIMER
 };
 
 void initTimers();
-void configTimer(int timer, unsigned int microseconds, unsigned int autoReload, void (*callback)());
+void runTimer(int timer, unsigned int interval);
+void configTimer(int timer, unsigned int autoReload, void (*callback)());
 void freezeTimer(int timer);
 unsigned int getElapsedTime(int timer);
