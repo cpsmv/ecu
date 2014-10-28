@@ -149,41 +149,36 @@ unsigned int getElapsedTime(int timer)
   
 static void DMTimer2Isr(void)
 {
-    /* Clear the status of the interrupt flags */
-    DMTimerIntStatusClear(SOC_DMTIMER_2_REGS, DMTIMER_INT_OVF_IT_FLAG);
-
     callbacks[0]();
+    /* Clear the status of the interrupt flags */
+    DMTimerIntStatusClear(SOC_DMTIMER_2_REGS, DMTIMER_INT_OVF_IT_FLAG);   
 }
 
 static void DMTimer3Isr(void)
 {
+    callbacks[1]();
     /* Clear the status of the interrupt flags */
     DMTimerIntStatusClear(SOC_DMTIMER_3_REGS, DMTIMER_INT_OVF_IT_FLAG);
-
-    callbacks[1]();
 }
 
 static void DMTimer4Isr(void)
 {
+    callbacks[2]();
     /* Clear the status of the interrupt flags */
     DMTimerIntStatusClear(SOC_DMTIMER_4_REGS, DMTIMER_INT_OVF_IT_FLAG);
-
-    callbacks[2]();
 }
 
 
 static void DMTimer6Isr(void)
 {
+    callbacks[3]();
     /* Clear the status of the interrupt flags */
     DMTimerIntStatusClear(SOC_DMTIMER_6_REGS, DMTIMER_INT_OVF_IT_FLAG);
-
-    callbacks[3]();
 }
 
 static void DMTimer7Isr(void)
 {
-    /* Clear the status of the interrupt flags */
-    DMTimerIntStatusClear(SOC_DMTIMER_7_REGS, DMTIMER_INT_OVF_IT_FLAG);
-
     callbacks[4]();
+    /* Clear the status of the interrupt flags */
+    DMTimerIntStatusClear(SOC_DMTIMER_7_REGS, DMTIMER_INT_OVF_IT_FLAG);    
 }
