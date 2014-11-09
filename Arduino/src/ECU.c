@@ -81,12 +81,23 @@ ISR(PCINT_0)// pin interrupt
    //lastTime = timercounter * (timer frequency in hz)
    OCR1A = 0; //timer counter = 0
    toothCount++;
-   angle = toothCount * ANGLEDISTANCE + (ANGLEDISTANCE * 2);
+   //angle += toothCount * ANGLEDISTANCE;// + (ANGLEDISTANCE * 2);
    approxAngle = angle;
    if(lastTime > ( avgTime + TOOTHOFFSET))
    {
       toothCount = 0;
+       angle = (ANGLEDISTANCE * 2);
    }
+   else
+   {
+      tooth++;
+      angle += toothCount * ANGLEDISTANCE;
+       avgTime = (lastTime + avgTime) / 2;
+   }
+   //run timer for larg number
+   /*
+   if(!lastTime == avgTime *2)
+      avgTime = (lastTime + avgTime) / 2;*/
    //stop timer
    //read counter
    //start timer
@@ -109,7 +120,7 @@ int main(void)
    {
       rpmValue = 0; //read rpm find value (equation)
       mapValue = 0; //read map 
-      avgTime = (lastTime + avgTime) / 2;
+      //avgTime = (lastTime + avgTime) / 2;
       if(lastTime > ( avgTime + TOOTHOFFSET))
       {
          toothCount = 0;
