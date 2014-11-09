@@ -37,7 +37,7 @@ ISR(TIMER0_COMPA_vect)
    {
       //open injector pin write
       doFuel = 1;
-      //timercounter += fuel ammount*62.5 // time in millseconds * timer frequency
+      //timercounter += fuel ammount* (timer frequency in hz) // time in millseconds * timer frequency
    }
    else if(doFuel == 1)
    {
@@ -56,7 +56,7 @@ ISR(TIMER2_COMPA_vect)
       {
          //wirte to spark pin start charing spark
          doSpark = 1;
-         //timercounter +=  DWELLTIME *62.5;
+         //timercounter +=  DWELLTIME * (timer frequency in hz);
       }
       else
       {
@@ -73,11 +73,15 @@ ISR(TIMER2_COMPA_vect)
 
 ISR(PCINT_0)// pin interrupt
 {
-   //lastTime = timercounter * (timer frequency)
+   //lastTime = timercounter * (timer frequency in hz)
    OCR1A = 0; //timer counter = 0
    toothCount++;
    angle = toothCount * ANGLEDISTANCE + (ANGLEDISTANCE * 2);
    approxAngle = angle;
+   if(lastTime > ( avgTime + TOOTHOFFSET))
+   {
+      toothCount = 0;
+   }
    //stop timer
    //read counter
    //start timer
