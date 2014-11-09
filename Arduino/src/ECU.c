@@ -16,10 +16,12 @@
 #define TOOTHOFFSET 10//allowable deviation between pin dectetion (in time milliseconds)
 #define TOOTHNUM 10 //number of teeth
 
-volatile char fuelOpen; //0, 1, or 2
-volatile float fuelTime; //from ve table
+volatile char fuelOpen; //0 or 1
+volatile float fuelTime; //caluclated by main (when to fuel)
+volatile int fuelDurration; //ammount of fuel
 
-volatile float sparkAngle; //from SA table
+
+//volatile float sparkAngle; //from SA table calculate in main conifigure timer arround value
 
 volatile float curAngle; //current angle
 volatile float avgTime;
@@ -32,6 +34,9 @@ volatile float approxAngle;
 //fuel injection
 ISR(TIMER0_COMPA_vect)
 {
+   //if fuel open, close fuel injector fuel open = 0 
+   //else open fuel injector run time for fuelDurration, fuel open = 1
+   /*
    if(doFuel == 0)
    {
       //open injector pin write
@@ -42,12 +47,13 @@ ISR(TIMER0_COMPA_vect)
    {
       //close injector pin write
       doFuel = 0;
-   }
+   }*/
 }
 
 //spark advance
 ISR(TIMER2_COMPA_vect)
 {
+   //ifr spark close spark
    if(doSpark == 0)
    {
       //((desiredAngle - curAngle)/ANGLEDISTANCE)* avgTime is the time until the desired angle is reached
