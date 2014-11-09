@@ -28,6 +28,7 @@ volatile float avgTime;
 volatile int lastTime; //last counted time
 
 volatile int toothCount; // touth count
+volatile float approxAngle;
 
 //fuel injection
 ISR(TIMER0_COMPA_vect)
@@ -75,7 +76,8 @@ ISR(PCINT_0)// pin interrupt
    //lastTime = timercounter * (timer frequency)
    OCR1A = 0; //timer counter = 0
    toothCount++;
-   angle = toothCount * ANGLEDISTANCE +(ANGLEDISTANCE * 2);
+   angle = toothCount * ANGLEDISTANCE + (ANGLEDISTANCE * 2);
+   approxAngle = angle;
    //stop timer
    //read counter
    //start timer
@@ -96,7 +98,7 @@ int main(void)
    float airVolume = 0;
    for(;;)
    {
-      rpmValue = 0; //read rpm
+      rpmValue = 0; //read rpm find value (equation)
       mapValue = 0; //read map 
       avgTime = (lastTime + avgTime) / 2;
       if(lastTime > ( avgTime + TOOTHOFFSET))
@@ -105,6 +107,8 @@ int main(void)
       }
       //angle distance * 2 is the distance between the two teeth with the missing tooth inbetween
       //angle = toothCount * ANGLEDISTANCE +(ANGLEDISTANCE * 2); 
+      approxAngle =  angle + (timerCounter * RPM);
+      
       if(doFuel == 0)
       {
          airVolume = tableLookup(VETable, rpmValue, mapValue);
