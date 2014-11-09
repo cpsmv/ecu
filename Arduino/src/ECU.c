@@ -32,33 +32,29 @@ volatile int toothCount; // touth count
 //fuel injection
 ISR(TIMER0_COMPA_vect)
 {
-   if(doFuel == 1)
+   if(doFuel == 0)
    {
       //open injector pin write
-      doFuel = 2;
+      doFuel = 1;
       //timercounter += fuel ammount*62.5 // time in millseconds * timer frequency
    }
-   else if(doFuel == 2)
+   else if(doFuel == 1)
    {
       //close injector pin write
       doFuel = 0;
-   }
-   else
-   {
-      //base case? delay until trigered by main
    }
 }
 
 //spark advance
 ISR(TIMER2_COMPA_vect)
 {
-   if(doSpark == 1)
+   if(doSpark == 0)
    {
       //((desiredAngle - curAngle)/ANGLEDISTANCE)* avgTime is the time until the desired angle is reached
       if(DWELLTIME - ((desiredAngle - curAngle)/ANGLEDISTANCE)* avgTime <= SPARKOFFSET)
       {
          //wirte to spark pin start charing spark
-         doSpark = 2;
+         doSpark = 1;
          //timercounter +=  DWELLTIME *62.5;
       }
       else
@@ -66,15 +62,11 @@ ISR(TIMER2_COMPA_vect)
          //timercounter += (desiredAngle - curAngle)/ANGLEDISTANCE)* avgTime + SPARKOFFSET - DWELLTIME * 62.5
       }
    }
-   else if(doSpark == 2)
+   else if(doSpark == 1)
    {
       //write to spark pin stop charging spark //spark will realese
       doSpark = 0;
 
-   }
-   else
-   {
-      //base case ?
    }
 }
 
@@ -118,14 +110,12 @@ int main(void)
          airVolume = tableLookup(VETable, rpmValue, mapValue);
          fuelAmmount = 0; //equation for fuel volume by mass of air / 14.7
          //fuel ammont will be value in milliseconds
-         doFuel = 1;
-         //timer counter 1 = 0;
+         //timer counter 1 = 0; //trigger interupt 
       }
       if(doSpark == 0)
       {
          desiredAngle = tableLookup(SATable, rpmValue, mapValue);
-         doSpark = 1;
-         //timer cointer 2 = 0;
+         //timer cointer 2 = 0; //trigger interupt
       }
    }
 
