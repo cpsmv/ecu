@@ -16,10 +16,9 @@
 #define TOOTHOFFSET 10//allowable deviation between pin dectetion (in time milliseconds)
 #define TOOTHNUM 10 //number of teeth
 
-volatile char doFuel; //0, 1, or 2
+volatile char fuelOpen; //0, 1, or 2
 volatile float fuelAmmount; //from ve table
 
-volatile char doSpark; //0, 1, or 2
 volatile float desiredAngle; //from s
 
 volatile float curAngle; //current angle
