@@ -83,6 +83,7 @@ ISR(PCINT_0)// pin interrupt
    //lastTime = timercounter * (timer frequency)
    OCR1A = 0; //timer counter = 0
    toothCount++;
+   angle = toothCount * ANGLEDISTANCE +(ANGLEDISTANCE * 2);
    //stop timer
    //read counter
    //start timer
@@ -111,7 +112,7 @@ int main(void)
          toothCount = 0;
       }
       //angle distance * 2 is the distance between the two teeth with the missing tooth inbetween
-      angle = toothCount * ANGLEDISTANCE +(ANGLEDISTANCE * 2); 
+      //angle = toothCount * ANGLEDISTANCE +(ANGLEDISTANCE * 2); 
       if(doFuel == 0)
       {
          airVolume = tableLookup(VETable, rpmValue, mapValue);
