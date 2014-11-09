@@ -19,7 +19,7 @@
 volatile char fuelOpen; //0, 1, or 2
 volatile float fuelTime; //from ve table
 
-volatile float desiredAngle; //from s
+volatile float sparkAngle; //from SA table
 
 volatile float curAngle; //current angle
 volatile float avgTime;
