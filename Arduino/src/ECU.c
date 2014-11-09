@@ -106,7 +106,10 @@ int main(void)
       rpmValue = 0; //read rpm
       mapValue = 0; //read map 
       avgTime = (lastTime + avgTime) / 2;
-      toothCount = (lastTime > ( avgTime + TOOTHOFFSET))? 0 : toothCount;
+      if(lastTime > ( avgTime + TOOTHOFFSET))
+      {
+         toothCount = 0;
+      }
       //angle distance * 2 is the distance between the two teeth with the missing tooth inbetween
       angle = toothCount * ANGLEDISTANCE +(ANGLEDISTANCE * 2); 
       if(doFuel == 0)
