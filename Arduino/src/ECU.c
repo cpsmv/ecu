@@ -14,6 +14,7 @@
 #define ANGLEDISTANCE 10 //n angular distance between pins
 #define SPARKOFFSET 10//allowable diffrence for spark offset (in time miliseconds)
 #define TOOTHOFFSET 10//allowable deviation between pin dectetion (in time milliseconds)
+#define TOOTHNUM 10 //number of teeth
 
 volatile char doFuel; //0, 1, or 2
 volatile float fuelAmmount; //from ve table
