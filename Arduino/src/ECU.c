@@ -17,7 +17,7 @@
 #define TOOTHNUM 10 //number of teeth
 
 volatile char fuelOpen; //0, 1, or 2
-volatile float fuelAmmount; //from ve table
+volatile float fuelTime; //from ve table
 
 volatile float desiredAngle; //from s
 
