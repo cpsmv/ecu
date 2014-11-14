@@ -48,13 +48,14 @@ ISR(TIMER0_COMPA_vect)
       //close injector pin write
       doFuel = 0;
    }*/
+   //don't configure timer after fuel is done
 }
 
 //spark advance
 ISR(TIMER2_COMPA_vect)
 {
    //ifr spark close spark
-   if(doSpark == 0)
+   if(!doSpark)
    {
       //((desiredAngle - curAngle)/ANGLEDISTANCE)* avgTime is the time until the desired angle is reached
       if(DWELLTIME - ((desiredAngle - curAngle)/ANGLEDISTANCE)* avgTime <= SPARKOFFSET)
@@ -72,8 +73,10 @@ ISR(TIMER2_COMPA_vect)
    {
       //write to spark pin stop charging spark //spark will realese
       doSpark = 0;
+      //set flag to false so we know we are not waiting on a fuel injection or spark timer to expire
 
    }
+   //don't congfigure timer when spark is done
 }
 
 ISR(PCINT_0)// pin interrupt
