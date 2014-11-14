@@ -54,6 +54,7 @@ MAIN:
 			fuel amount (equation for air volume by mass of air) / 14.7
 
 			set doFuel 1
+			
 		if(doSpark == 0)
 			table lookup (SA table, RPM, MAP)
 
