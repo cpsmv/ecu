@@ -9,141 +9,135 @@
 #define FUEL PD1 
 #define SPARK PD2
 
+
 #define DWELLTIME 10 //n microseconds
 #define FUELTIME 10 //n amount of fuel per unit time
 #define ANGLEDISTANCE 10 //n angular distance between pins
-#define SPARKOFFSET 10//allowable diffrence for spark offset (in time miliseconds)
-#define TOOTHOFFSET 10//allowable deviation between pin dectetion (in time milliseconds)
+#define SPARKOFFSET 10//allowable difference for spark offset (in time milliseconds)
+#define TOOTHOFFSET 10//allowable deviation between pin detection (in time milliseconds)
 #define TOOTHNUM 10 //number of teeth
+#define TDC 360 //top dead center in degrees
+#define GRACE 10 // degrees between release of spark charge and closing fuel injector
+#define CONFIGTIMEROFFSET 15 //degrees to configure the timers  within
 
 volatile char fuelOpen; //0 or 1
-volatile float fuelTime; //caluclated by main (when to fuel)
-volatile int fuelDurration; //ammount of fuel
+volatile float fuelTime; //calculated by main (when to fuel)
+volatile int fuelDurration; //amount of fuel (translates to time to keep injector open)
 
-
-//volatile float sparkAngle; //from SA table calculate in main conifigure timer arround value
+//volatile float sparkAngle; //angle to release the spark at
+volatile char charging;
 
 volatile float curAngle; //current angle
 volatile float avgTime;
 
 volatile int lastTime; //last counted time
 
-volatile int toothCount; // touth count
+volatile int toothCount; // tooth count
 volatile float approxAngle;
 
+volatile char valSet; //set to false after the spark has been fired so that new values are calculated
 //fuel injection
 ISR(TIMER0_COMPA_vect)
 {
-   //if fuel open, close fuel injector fuel open = 0 
-   //else open fuel injector run time for fuelDurration, fuel open = 1
-   /*
-   if(doFuel == 0)
+   if(fuelOpen)
    {
-      //open injector pin write
-      doFuel = 1;
-      //timercounter += fuel ammount* (timer frequency in hz) // time in millseconds * timer frequency
+      //cloes fuel injector
+      fuelOpen = 0;
    }
-   else if(doFuel == 1)
+   else
    {
-      //close injector pin write
-      doFuel = 0;
-   }*/
-   //don't configure timer after fuel is done
+      //open fuel injector
+      fuelOpen = 1;
+      //run timer for fuelDurration 
+   }
 }
 
 //spark advance
 ISR(TIMER2_COMPA_vect)
 {
-   //ifr spark close spark
-   if(!doSpark)
+   if(!charging)
    {
-      //((desiredAngle - curAngle)/ANGLEDISTANCE)* avgTime is the time until the desired angle is reached
-      if(DWELLTIME - ((desiredAngle - curAngle)/ANGLEDISTANCE)* avgTime <= SPARKOFFSET)
-      {
-         //wirte to spark pin start charing spark
-         doSpark = 1;
-         //timercounter +=  DWELLTIME * (timer frequency in hz);
-      }
-      else
-      {
-         //timercounter += (desiredAngle - curAngle)/ANGLEDISTANCE)* avgTime + SPARKOFFSET - DWELLTIME * 62.5
-      }
-   }
-   else if(doSpark == 1)
-   {
-      //write to spark pin stop charging spark //spark will realese
-      doSpark = 0;
-      //set flag to false so we know we are not waiting on a fuel injection or spark timer to expire
-
-   }
-   //don't congfigure timer when spark is done
-}
-
-ISR(PCINT_0)// pin interrupt
-{
-   //lastTime = timercounter * (timer frequency in hz)
-   OCR1A = 0; //timer counter = 0
-   toothCount++;
-   //angle += toothCount * ANGLEDISTANCE;// + (ANGLEDISTANCE * 2);
-   approxAngle = angle;
-   if(lastTime > ( avgTime + TOOTHOFFSET))
-   {
-      toothCount = 0;
-       angle = (ANGLEDISTANCE * 2);
+      charging = 1;
+      //run timer for dwell time
    }
    else
    {
-      tooth++;
-      angle += toothCount * ANGLEDISTANCE;
-       avgTime = (lastTime + avgTime) / 2;
+      //discharge
+      charging = 0;
+      valSet = 0;
    }
-   //run timer for larg number
-   /*
-   if(!lastTime == avgTime *2)
-      avgTime = (lastTime + avgTime) / 2;*/
-   //stop timer
-   //read counter
-   //start timer
-   //counter => timer
+}
+
+void tacISR()
+{
+   lastTime = //timer value * conversion factor to microseconds
+   int diffrence = lastTime - (2*avgTime);
+   if(diffrence < 0)
+      diffrence *= -1;
+   if(diffrence >= TOOTHOFFSET)
+   {
+      toothCount = 0;
+      curAngle = 0;
+   }
+   else
+   {
+      toothCount++;
+      curAngle = toothCount * ANGLEDISTANCE;
+      avgTime = (lastTime + avgTime) / 2
+   }
+   approxAngle = curAngle;
+   //run timer for a while
 }
 
 int main(void)
 {
-   //initialize variables
-   avgTime = 0;
-   curAngle = 0;
-   doFuel = 0;
-   doSpark = 0;
-   toothCount = 0;
-   lastTime = 0;
-   float rpmValue = 0; //read rpm
-   float mapValue = 0; //read map 
-   float airVolume = 0;
+   float sparkAngle; //angle to release the spark at
+   float fuelAngle; //angle to stop fueling at
+   int airVolume;
+   int rpm;
+   int map;
+   float setTimer; //angle to set timers at
+   float fuelStart;
+   float sparkStart;
+   char timerSet = 0;
+   //initialize timers
+   noInterrupts();
+   attachInterrupt(0,tacISR, CHANGE);
+   interrupts();
+   //configure timer 0 timer 2
+   approxAngle = 0;
    for(;;)
    {
-      rpmValue = 0; //read rpm find value (equation)
-      mapValue = 0; //read map 
-      //avgTime = (lastTime + avgTime) / 2;
-      if(lastTime > ( avgTime + TOOTHOFFSET))
-      {
-         toothCount = 0;
-      }
-      //angle distance * 2 is the distance between the two teeth with the missing tooth inbetween
-      //angle = toothCount * ANGLEDISTANCE +(ANGLEDISTANCE * 2); 
-      approxAngle =  angle + (timerCounter * RPM);
+      //read RPM MAP
+      approxAngle = curAngle + //timer value converted to microseconds * RPM converted to rotations per microsecond
       
-      if(doFuel == 0)
+      if(!valSet)
       {
-         airVolume = tableLookup(VETable, rpmValue, mapValue);
-         fuelAmmount = 0; //equation for fuel volume by mass of air / 14.7
-         //fuel ammont will be value in milliseconds
-         //timer counter 1 = 0; //trigger interupt 
-      }
-      if(doSpark == 0)
-      {
-         desiredAngle = tableLookup(SATable, rpmValue, mapValue);
-         //timer cointer 2 = 0; //trigger interupt
-      }
-   }
+	 sparkAngle = TDC - tableLookup(SATable,rpm, map );
+	 fuelAngle = sparkAngle - GRACE;
+	 airVolume = tableLookup(VETable, rpmValue, mapValue);
+	 fuelAmmount = //equation for fuel amount from air volume, convert to time (microseconds)
 
+	 fuelStart = fuelAngle - (fuelAmmount * //RPM converted to rotations per microsecond)
+	 sparkStart = sparkAngle - (DWELLTIME * //RPM converted to rotations per microsecond;
+	 timerSet = 0;
+      }
+
+      if(!timerSet)
+      {
+
+	 if(charging && fuelOpen)
+	 {
+	    timerSet = 1;
+	 }
+	 if(fuelStart - approxAngle <= CONFIGTIMEROFFSET && !fuelOpen)
+	 {
+	    //start fuel timer
+	 }
+	 if(sparkStart - approxAngle <= CONFIGTIMEROFFSET && !charging)
+	 {
+	    //start spark timer
+	 }
+      }     
+   }
 }
