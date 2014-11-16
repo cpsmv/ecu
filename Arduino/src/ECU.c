@@ -105,7 +105,8 @@ int main(void)
    attachInterrupt(0,tacISR, CHANGE);
    interrupts();
    //configure timer 0 timer 2
-   approxAngle = 0;
+   curAngle = approxAngle = 0;
+   valSet = 0;
    for(;;)
    {
       //read RPM MAP
@@ -121,6 +122,7 @@ int main(void)
 	 fuelStart = fuelAngle - (fuelAmmount * //RPM converted to rotations per microsecond)
 	 sparkStart = sparkAngle - (DWELLTIME * //RPM converted to rotations per microsecond;
 	 timerSet = 0;
+	 valSet = 1;
       }
 
       if(!timerSet)
@@ -133,10 +135,12 @@ int main(void)
 	 if(fuelStart - approxAngle <= CONFIGTIMEROFFSET && !fuelOpen)
 	 {
 	    //start fuel timer
+	    fuelOpen = 1;
 	 }
 	 if(sparkStart - approxAngle <= CONFIGTIMEROFFSET && !charging)
 	 {
 	    //start spark timer
+	    charging = 1;
 	 }
       }     
    }
