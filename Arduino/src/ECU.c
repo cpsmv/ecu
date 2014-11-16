@@ -21,7 +21,6 @@
 #define CONFIGTIMEROFFSET 15 //degrees to configure the timers  within
 
 volatile char fuelOpen; //0 or 1
-volatile float fuelTime; //calculated by main (when to fuel)
 volatile int fuelDurration; //amount of fuel (translates to time to keep injector open)
 
 volatile char charging;
@@ -105,14 +104,14 @@ int main(void)
    interrupts();
    //configure timer 0 timer 2
    curAngle = approxAngle = 0;
-   //valSet = 0;
+   valSet = 0;
    for(;;)
    {
       //read RPM MAP
       approxAngle = curAngle + //timer value converted to microseconds * RPM converted to rotations per microsecond
       
-     // if(!valSet)
-      //{
+      if(!valSet)
+      {
 	 sparkAngle = TDC - tableLookup(SATable,rpm, map );
 	 fuelAngle = sparkAngle - GRACE;
 	 airVolume = tableLookup(VETable, rpmValue, mapValue);
@@ -121,8 +120,8 @@ int main(void)
 	 fuelStart = fuelAngle - (fuelAmmount * //RPM converted to rotations per microsecond)
 	 sparkStart = sparkAngle - (DWELLTIME * //RPM converted to rotations per microsecond;
 	 timerSet = 0;
-	 //valSet = 1;
-      //}
+	 valSet = 1;
+      }
 
       if(!timerSet)
       {
