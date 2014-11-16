@@ -24,24 +24,23 @@ volatile char fuelOpen; //0 or 1
 volatile float fuelTime; //calculated by main (when to fuel)
 volatile int fuelDurration; //amount of fuel (translates to time to keep injector open)
 
-//volatile float sparkAngle; //angle to release the spark at
 volatile char charging;
 
-volatile float curAngle; //current angle
-volatile float avgTime;
+volatile float curAngle; //last known angle
+volatile float avgTime; //average time between tics
 
 volatile int lastTime; //last counted time
 
 volatile int toothCount; // tooth count
-volatile float approxAngle;
+volatile float approxAngle; //current approximate angle 
 
-volatile char valSet; //set to false after the spark has been fired so that new values are calculated
+//volatile char valSet; //set to false after the spark has been fired so that new values are calculated
 //fuel injection
 ISR(TIMER0_COMPA_vect)
 {
    if(fuelOpen)
    {
-      //cloes fuel injector
+      //close fuel injector
       fuelOpen = 0;
    }
    else
@@ -74,7 +73,7 @@ void tacISR()
    int diffrence = lastTime - (2*avgTime);
    if(diffrence < 0)
       diffrence *= -1;
-   if(diffrence >= TOOTHOFFSET)
+   if(diffrence <= TOOTHOFFSET)
    {
       toothCount = 0;
       curAngle = 0;
@@ -106,14 +105,14 @@ int main(void)
    interrupts();
    //configure timer 0 timer 2
    curAngle = approxAngle = 0;
-   valSet = 0;
+   //valSet = 0;
    for(;;)
    {
       //read RPM MAP
       approxAngle = curAngle + //timer value converted to microseconds * RPM converted to rotations per microsecond
       
-      if(!valSet)
-      {
+     // if(!valSet)
+      //{
 	 sparkAngle = TDC - tableLookup(SATable,rpm, map );
 	 fuelAngle = sparkAngle - GRACE;
 	 airVolume = tableLookup(VETable, rpmValue, mapValue);
@@ -122,25 +121,27 @@ int main(void)
 	 fuelStart = fuelAngle - (fuelAmmount * //RPM converted to rotations per microsecond)
 	 sparkStart = sparkAngle - (DWELLTIME * //RPM converted to rotations per microsecond;
 	 timerSet = 0;
-	 valSet = 1;
-      }
+	 //valSet = 1;
+      //}
 
       if(!timerSet)
       {
 
+	 if(fuelStart - approxAngle <= CONFIGTIMEROFFSET && !fuelOpen)
+	 {
+	    fuelOpen = 1;
+	    //start fuel timer
+	 }
+
+	 if(sparkStart - approxAngle <= CONFIGTIMEROFFSET && !charging)
+	 {
+	    charging = 1;
+	    //start spark timer
+	 }
+	 //the timers are set
 	 if(charging && fuelOpen)
 	 {
 	    timerSet = 1;
-	 }
-	 if(fuelStart - approxAngle <= CONFIGTIMEROFFSET && !fuelOpen)
-	 {
-	    //start fuel timer
-	    fuelOpen = 1;
-	 }
-	 if(sparkStart - approxAngle <= CONFIGTIMEROFFSET && !charging)
-	 {
-	    //start spark timer
-	    charging = 1;
 	 }
       }     
    }
