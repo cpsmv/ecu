@@ -33,7 +33,8 @@ volatile int lastTime; //last counted time
 volatile int toothCount; // tooth count
 volatile float approxAngle; //current approximate angle 
 
-//volatile char valSet; //set to false after the spark has been fired so that new values are calculated
+volatile char valSet; //set to false after the spark has been fired so that new values are calculated other wise it will be true so that we only calculate the spark angle and amount of fuel once and not every run through of the main loop
+
 //fuel injection
 ISR(TIMER0_COMPA_vect)
 {
@@ -46,7 +47,7 @@ ISR(TIMER0_COMPA_vect)
    {
       //open fuel injector
       fuelOpen = 1;
-      //run timer for fuelDurration 
+      //run timer for fuel Duration 
    }
 }
 
@@ -62,6 +63,7 @@ ISR(TIMER2_COMPA_vect)
    {
       //discharge
       charging = 0;
+      //flag to recalculate when to fire spark and how much fuel to inject
       valSet = 0;
    }
 }
@@ -94,7 +96,8 @@ int main(void)
    int airVolume;
    int rpm;
    int map;
-   float setTimer; //angle to set timers at
+
+   //angles to set timers at
    float fuelStart;
    float sparkStart;
    char timerSet = 0;
@@ -102,6 +105,7 @@ int main(void)
    noInterrupts();
    attachInterrupt(0,tacISR, CHANGE);
    interrupts();
+
    //configure timer 0 timer 2
    curAngle = approxAngle = 0;
    valSet = 0;
@@ -109,7 +113,8 @@ int main(void)
    {
       //read RPM MAP
       approxAngle = curAngle + //timer value converted to microseconds * RPM converted to rotations per microsecond
-      
+
+      //if we have not calculated when to fire the spark and how much fuel to inject do calculations
       if(!valSet)
       {
 	 sparkAngle = TDC - tableLookup(SATable,rpm, map );
@@ -122,21 +127,22 @@ int main(void)
 	 timerSet = 0;
 	 valSet = 1;
       }
-
+      //if the timers are not yet set
       if(!timerSet)
       {
-
+	 //if we are close enough to where we need to start fueling and the fuel is not already open
 	 if(fuelStart - approxAngle <= CONFIGTIMEROFFSET && !fuelOpen)
 	 {
 	    fuelOpen = 1;
 	    //start fuel timer
 	 }
-
+	 //if we are close enough to where we need to start charging the spark and the spark is not already charging
 	 if(sparkStart - approxAngle <= CONFIGTIMEROFFSET && !charging)
 	 {
 	    charging = 1;
 	    //start spark timer
 	 }
+
 	 //the timers are set
 	 if(charging && fuelOpen)
 	 {
