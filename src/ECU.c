@@ -30,6 +30,8 @@ volatile float instantDPMS;     //pseudoinstantaneous angular velocity in degree
 volatile char fuelOpen;       // whether the fuel injector is open
 volatile char chargingSpark;  // whether the spark is charging
 
+volatile char useFuel;			// whether or not to use fuel (only fuel every other cycle)
+
 volatile int fuelDuration;    // how long to fuel inject
 
 volatile int lastTick;        // last tachometer interrupt
@@ -67,14 +69,16 @@ void sparkISR()
 
    if(chargingSpark)    // if charging, time to discharge!
    {
-      // send signal to discharge 
-      // ASK PINK WHAT SIGNALS ARE NECESSARY
+      // send signal to discharge
+      digitalWrite(SPARK_PIN, LOW); // ASK PINK WHAT SIGNALS ARE NECESSARY
       chargingSpark = FALSE;  // no longer charging
       recalc = TRUE;          // time to begin recalculating for the new cycle
+      useFuel = !useFuel;     // if we just fueled, not necessary to fuel on the next cycle
    }
    else                 // if not charging, time to charge
    {
       // send signal to begin charge
+      digitalWrite(SPARK_PIN, HIGH); // ASK PINK WHAT SIGNALS ARE NECESSARY
       chargingSpark = TRUE;   // currently charging spark
       SPARK_TIMER.start(DWELLTIME); // discharge after DWELLTIME us
    }
@@ -90,7 +94,7 @@ void tacISR()
    lastTickDelta = lastTick - prevTick; // calculate time between lastTick and prevTick
    
    // if the difference is 1.3 times more than the last one, we hit the missing tooth, time to calibrate
-   if(lastTickDelta > prevTickDelta * 1.3f) {
+   if(lastTickDelta > prevTickDelta * 1.4f) {
       lastToothAngle = CALIB_ANGLE;
       toothCount = 0;
    }
@@ -117,17 +121,18 @@ int main() {
 
    float airVolume;        // volume of air that the engine will intake in m^3
    float map;              // manifold air pressure in kPa
-   
 
+   useFuel = TRUE;            // use fuel on the first cycle and every other cycle thereafter
+   
    attachInterrupt(TAC_PIN, tacISR, RISING); // set up the tachometer ISR
    SPARK_TIMER.attachInterrupt(sparkISR);    // set up the spark ISR
    FUEL_TIMER.attachInterrupt(fuelISR);      // set up the fuel injection ISR
 
    while(1) {
 
-      map = analogRead(MAP_PIN) * some conversion factor motha fucka; // read in manifold air pressure
-
       if(recalc) {
+
+         map = (float)analogRead(MAP_PIN) / 1024 * 100; // read in manifold air pressure
 
          sparkAdvAngle = TDC - tableLookup(SATable, instantDPMS * 166667, map);  // calculate spark advance angle
 
@@ -146,12 +151,23 @@ int main() {
          // figure out in how long we need to begin charging spark (how long until sparkChargeAngle)
          approxAngle = lastToothAngle + (micros() - lastTick) * instantDPMS;
          sparkChargeTime = (sparkChargeAngle - approxAngle) / instantDPMS;
-         SPARK_TIMER.start(sparkChargeTime); // set timer to begin charging spark on time
 
-         // figure out in how long we need to begin fuel injecting
-         approxAngle = lastToothAngle + (micros() - lastTick) * instantDPMS;
-         fuelStartTime = (fuelStartAngle - approxAngle) / instantDPMS;
-         FUEL_TIMER.start(fuelStartTime); // set timer to begin injecting on time
+         // check if we haven't already started charging the spark (i.e. if the spark charge time is in the future)
+         if(sparkChargeTime > 0)
+            SPARK_TIMER.start(sparkChargeTime); // set timer to begin charging spark on time
+
+         // check if we need to fuel on the current cycle
+         if(useFuel) {
+            // figure out in how long we need to begin fuel injecting
+            approxAngle = lastToothAngle + (micros() - lastTick) * instantDPMS;
+            fuelStartTime = (fuelStartAngle - approxAngle) / instantDPMS;
+
+            // check if we haven't already begun fueling (i.e. if the fuel start time is in the future)
+            if(fuelStartTime > 0)
+               FUEL_TIMER.start(fuelStartTime); // set timer to begin injecting on time
+            else
+               recalc = FALSE; // we've already done all we can at this point, JESUS TAKE THE WHEEEL
+         }
 
       }
    }
