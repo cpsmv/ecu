@@ -4,10 +4,12 @@
 #define TRUE 1
 #define FALSE 0
 
-#define TAC_PIN	0  // pin used for tachometer
+#define TAC_PIN	2  // pin used for tachometer
+#define MAP_PIN   3  // pin used for manifold air pressure
+
 #define FUEL_PIN	0  // pin used for fuel injection
 #define SPARK_PIN	0  // pin used for spark
-#define MAP_PIN   0  // pin used for manifold air pressure
+
 
 #define FUEL_TIMER Timer0
 #define SPARK_TIMER Timer1
