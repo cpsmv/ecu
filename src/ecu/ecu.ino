@@ -25,8 +25,8 @@
 #define ENGINE_DISPLACEMENT 49  // volume of the engine in cubic centimeters
 #define AMBIENT_TEMP 298        // ambient temperature in kelvin
 #define R_CONSTANT 287          // R_specific for dry air in J/kg/K
-#define AIR_FUEL_RATIO 13      // air to fuel ratio for octane (MAY NEED REVISION)
-#define MASS_FLOW_RATE  0.001f         // fuel injection flow rate in kg/s PUT SOMETHING HERE
+#define AIR_FUEL_RATIO 14.7f      // air to fuel ratio for octane (MAY NEED REVISION)
+#define MASS_FLOW_RATE  0.0006f         // fuel injection flow rate in kg/s
 
 volatile float instantDPMS;     //pseudoinstantaneous angular velocity in degrees per us
 
@@ -91,7 +91,6 @@ int mapPulseHigh;
 void setup() {
 
     Serial.begin(115200);
-    Serial.println("WHAAAAAAAAAAAAAAAAT");
 
     pinMode(TAC_IN, INPUT);
     pinMode(MAP_IN, INPUT);
@@ -116,7 +115,6 @@ void loop() {
     if (recalc) {
 
 #ifdef DIAGNOSTIC_MODE
-
         Serial.print("instant dpms");
         Serial.println(instantDPMS, 9);
         Serial.print("times sparked ");
@@ -133,7 +131,6 @@ void loop() {
         Serial.print("spark charge duration: ");
         Serial.println(sparkChargeEnd - sparkChargeStart);
 
-
         Serial.print("fuel start angle ");
         Serial.println(fuelStartAngle);
         Serial.print("actual fuel start angle ");
@@ -148,23 +145,28 @@ void loop() {
         Serial.println(fuelEnd - fuelStart);
 
         Serial.println("");
-
 #endif
 
 
         mapPulseHigh = pulseIn(MAP_IN, HIGH);    // virtual engine uses unfiltered PWM, so we don't use ADC
-        mapVal = (float)mapPulseHigh / (mapPulseHigh + pulseIn(MAP_IN, LOW)) * 100; // read in manifold air pressure
+        mapVal = (float)mapPulseHigh / (float)(mapPulseHigh + pulseIn(MAP_IN, LOW)); // read in manifold air pressure
 
         sparkAdvAngle = TDC - tableLookup(&SATable, instantDPMS * 166667, mapVal);  // calculate spark advance angle
 
         // calculate volume of air to be taken in in m^3
-        airVolume = tableLookup(&VETable, instantDPMS * 166667, mapVal) * ENGINE_DISPLACEMENT / 1E5f;
+        
+        airVolume = tableLookup(&VETable, instantDPMS * 166667, mapVal * 100) * ENGINE_DISPLACEMENT;
+        Serial.print("airvolume ");
+        Serial.println(airVolume);
 
         // calculate how long to fuel inject
-        fuelDuration = 7500;//airVolume * mapVal / (float)(R_CONSTANT * AMBIENT_TEMP * AIR_FUEL_RATIO * MASS_FLOW_RATE);
+        fuelDuration = airVolume * mapVal * 1013 / (R_CONSTANT * AMBIENT_TEMP * AIR_FUEL_RATIO * MASS_FLOW_RATE);
+        Serial.print("fuelduration ");
+        Serial.println(fuelDuration);
 
         fuelDurationAngle = fuelDuration * instantDPMS; // calculate the angular displacement during fuel injection
-        fuelEndAngle = sparkAdvAngle - GRACE;           // calculate the angle at which to stop fuel injecting
+        fuelEndAngle = TDC - 60;
+        //fuelEndAngle = sparkAdvAngle - GRACE;           // calculate the angle at which to stop fuel injecting
         fuelStartAngle = fuelEndAngle - fuelDurationAngle; // calculate the angle at which to begin fuel injecting
 
         sparkChargeAngle = sparkAdvAngle - DWELLTIME * instantDPMS; // calculate angle at which to begin charging the spark
@@ -174,8 +176,8 @@ void loop() {
         sparkChargeTime = (sparkChargeAngle - approxAngle) / instantDPMS;
 
         // check if we haven't already started charging the spark (i.e. if the spark charge time is in the future)
-        if (sparkChargeTime > 100 && !chargingSpark)
-            SPARK_TIMER.start(sparkChargeTime); // set timer to begin charging spark on time
+        if (sparkChargeTime > 128 && !chargingSpark)
+            SPARK_TIMER.start(sparkChargeTime-127); // set timer to begin charging spark on time
 
         // check if we need to fuel on the current cycle
         if (useFuel) {
@@ -184,11 +186,13 @@ void loop() {
             fuelStartTime = (fuelStartAngle - approxAngle) / instantDPMS;
 
             // check if we haven't already begun fueling (i.e. if the fuel start time is in the future)
-            if (fuelStartTime > 100 && !fuelOpen)
-                FUEL_TIMER.start(fuelStartTime); // set timer to begin injecting on time
+            if (fuelStartTime > 128 && !fuelOpen)
+                FUEL_TIMER.start(fuelStartTime-127); // set timer to begin injecting on time
             else
                 recalc = FALSE; // we've already done all we can at this point, JESUS TAKE THE WHEEEL
+            	// TODO: FIX EXHAUSTIVE RECALCULATION ALGORITHM
         }
+        recalc = FALSE;
     }
 }
 
@@ -215,7 +219,10 @@ void fuelISR()
         actualFuelStartAngle = lastToothAngle + (fuelStart - lastTick) * instantDPMS;
 #endif
         fuelOpen = TRUE;              // currently injecting fuel
-        FUEL_TIMER.start(fuelDuration);  // inject for fuel duration and then stop
+        if(fuelDuration > 128)
+        	FUEL_TIMER.start(fuelDuration-127);  // inject for fuel duration and then stop
+        else
+        	FUEL_TIMER.start(1);
     }
 }
 
@@ -247,7 +254,7 @@ void sparkISR()
         actualSparkChargeAngle = lastToothAngle + (sparkChargeStart - lastTick) * instantDPMS;
 #endif
         chargingSpark = TRUE;   // currently charging spark
-        SPARK_TIMER.start(DWELLTIME); // discharge after DWELLTIME us
+        SPARK_TIMER.start(DWELLTIME-127); // discharge after DWELLTIME us
     }
 }
 

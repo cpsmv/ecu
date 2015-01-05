@@ -38,13 +38,11 @@ void setup() {
     mapVal = 128;
     tooth = 0;
     printSpark = 0;
-    printFuel = 0;
+    
+    //attachInterrupt(0, spark, FALLING);
 
-    attachInterrupt(0, sparkCharging, FALLING);
-    attachInterrupt(0, spark, FALLING);
-
-    attachInterrupt(1, fuelStart, RISING);
-    attachInterrupt(1, fuelEnd, RISING);
+    //attachInterrupt(1, fuelStart, RISING);
+    //attachInterrupt(1, fuelEnd, RISING);
 
     configTimer(TIC_TAC_AT_1K_RPM);
     analogWrite(MAP_OUT, mapVal);
@@ -68,18 +66,17 @@ void loop() {
     if (printSpark) {
         Serial.print("current spark based rpm: ");
         Serial.println(6E7 / (currSparkTime - oldSparkTime));
-        Serial.print("dwell time (us): ");
-        Serial.println(currSparkTime - sparkChargeTime);
-        Serial.print("tooth during spark: ");
-        Serial.println(sparkAtTooth);
-        Serial.print("tooth during fuel start: ");
-        Serial.println(fuelStartTooth);
-        Serial.print("tooth during fuel end: ");
-        Serial.println(fuelEndTooth);
-        Serial.println();
+        //Serial.print("dwell time (us): ");
+        //Serial.println(currSparkTime - sparkChargeTime);
+        //Serial.print("tooth during spark: ");
+        //Serial.println(sparkAtTooth);
+        //Serial.print("tooth during fuel start: ");
+        //Serial.println(fuelStartTooth);
+        //Serial.print("tooth during fuel end: ");
+        //Serial.println(fuelEndTooth);
+        //Serial.println();
         printSpark = 0;
     }
-
 }
 
 // send tac signals
