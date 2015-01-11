@@ -1,14 +1,14 @@
-#include <TimerOne.h>
-
+/*
+The virtual Honda engine
+(find out how to) find out amount of fuel injected when injector is opening and closing
+   */
 #define MAP_OUT 5
 #define TAC_OUT 13
 
 #define SPARK_IN 2
 #define FUEL_IN 3
 
-#define TIC_TAC_AT_1K_RPM 4616
-
-#define MAX_TEETH 13
+#define TIC_TAC_AT_1K_RPM 60000
 
 const unsigned int prescalers[] = {
     0, 1, 8, 64, 256, 1024
@@ -81,12 +81,9 @@ void loop() {
 
 // send tac signals
 ISR(TIMER1_COMPA_vect) {
-    tooth = (tooth + 1) % MAX_TEETH;
-    if (tooth != 0) {
         digitalWrite(TAC_OUT, HIGH);
         delayMicroseconds(1000);
         digitalWrite(TAC_OUT, LOW);
-    }
 }
 
 void increaseMAP() {

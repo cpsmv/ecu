@@ -1,4 +1,4 @@
-#include <DueTimer.h>
+#include "DueTimer.h"
 #include "table.h"
 
 #define DIAGNOSTIC_MODE 1
@@ -20,7 +20,7 @@
 #define GRACE 0      // degrees between finish fuel inject and discharge spark
 
 #define CALIB_ANGLE 0            // angle of the first tooth after the missing one
-#define ANGLE_PER_TOOTH 27.69f   // angle distance between teeth
+#define ANGLE_PER_TOOTH 360.0f   // angle distance between teeth
 
 #define ENGINE_DISPLACEMENT 49  // volume of the engine in cubic centimeters
 #define AMBIENT_TEMP 298        // ambient temperature in kelvin
@@ -41,8 +41,9 @@ volatile int lastTick;        // last tachometer interrupt
 volatile int lastTickDelta;   // time difference (us) between last tac interrupt and the previous one
 volatile int prevTick;        // previous tachometer interrupt
 volatile int prevTickDelta;   // previous lastTickDelta
+volatile int predictedTickDelta; //predicated tickDelta 
 
-volatile int toothCount;      // which tooth we're at on the crankshaft
+// not needed volatile int toothCount;      // which tooth we're at on the crankshaft
 volatile float lastToothAngle;  // angle of the last tooth that passed by
 
 volatile char recalc;         // flag to recalculate stuff after spark for next cycle
@@ -158,8 +159,8 @@ void loop() {
         airVolume = tableLookup(&VETable, instantDPMS * 166667, mapVal * 100) * ENGINE_DISPLACEMENT;
         Serial.print("airvolume ");
         Serial.println(airVolume);
-
-        // calculate how long to fuel inject
+	//TODO
+        // add constants for amount of fuel that is inject as the injector is opening  and closing (then calculate how much fuel to inject)
         fuelDuration = airVolume * mapVal * 1013 / (R_CONSTANT * AMBIENT_TEMP * AIR_FUEL_RATIO * MASS_FLOW_RATE);
         Serial.print("fuelduration ");
         Serial.println(fuelDuration);
@@ -188,14 +189,10 @@ void loop() {
             // check if we haven't already begun fueling (i.e. if the fuel start time is in the future)
             if (fuelStartTime > 128 && !fuelOpen)
                 FUEL_TIMER.start(fuelStartTime-127); // set timer to begin injecting on time
-            else
-                recalc = FALSE; // we've already done all we can at this point, JESUS TAKE THE WHEEEL
-            	// TODO: FIX EXHAUSTIVE RECALCULATION ALGORITHM
         }
         recalc = FALSE;
     }
 }
-
 
 //fuel injection
 void fuelISR()
@@ -266,20 +263,9 @@ void tacISR()
 
     prevTickDelta = lastTickDelta;
     lastTickDelta = lastTick - prevTick; // calculate time between lastTick and prevTick
+    predictedTickDelta = 2 * lastTickDelta - prevTickDelta;
 
-    // if the difference is 1.4 times more than the last one, we hit the missing tooth, time to calibrate
-    if (lastTickDelta > prevTickDelta * 1.4f) {
-        lastToothAngle = CALIB_ANGLE;
-        toothCount = 0;
-        instantDPMS = ANGLE_PER_TOOTH * 2 / lastTickDelta;
-    }
-    // if not, behave normally
-    else {
-        ++toothCount;
-        lastToothAngle += ANGLE_PER_TOOTH;
-        // calculate the angular velocity using the time between the last 2 ticks
-        instantDPMS = ANGLE_PER_TOOTH / lastTickDelta;
-    }
-
-
+    lastToothAngle = CALIB_ANGLE;
+    // calculate the angular velocity using the time between the last 2 ticks
+    instantDPMS = ANGLE_PER_TOOTH / predictedTickDelta;
 }
