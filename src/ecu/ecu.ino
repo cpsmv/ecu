@@ -41,7 +41,7 @@ volatile int lastTick;        // last tachometer interrupt
 volatile int lastTickDelta;   // time difference (us) between last tac interrupt and the previous one
 volatile int prevTick;        // previous tachometer interrupt
 volatile int prevTickDelta;   // previous lastTickDelta
-volatile int predictedTickDelta; //predicated tickDelta 
+volatile int predictedTickDelta; //predicted tickDelta 
 
 // not needed volatile int toothCount;      // which tooth we're at on the crankshaft
 volatile float lastToothAngle;  // angle of the last tooth that passed by
@@ -116,6 +116,10 @@ void loop() {
     if (recalc) {
 
 #ifdef DIAGNOSTIC_MODE
+        Serial.print("last tick delta: ");
+        Serial.println(lastTickDelta);
+        Serial.print("predicted tick delta: ");
+        Serial.println(predictedTickDelta);
         Serial.print("instant dpms");
         Serial.println(instantDPMS, 9);
         Serial.print("times sparked ");
