@@ -109,6 +109,8 @@ void setup() {
     SPARK_TIMER.attachInterrupt(sparkISR);    // set up the spark ISR
     FUEL_TIMER.attachInterrupt(fuelISR);      // set up the fuel injection ISR
 
+    while(instantDPMS * 166667 < 701);
+
 }
 
 void loop() {
