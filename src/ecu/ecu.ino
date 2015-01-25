@@ -1,4 +1,4 @@
-#include "DueTimer.h"
+#include <DueTimer.h>
 #include "table.h"
 
 #define DIAGNOSTIC_MODE 1
@@ -15,7 +15,7 @@
 #define FUEL_TIMER Timer0
 #define SPARK_TIMER Timer1
 
-#define DWELLTIME 5000 // spark coil dwell time in us
+#define DWELLTIME 2000 // spark coil dwell time in us
 #define TDC 360      // crankshaft top dead center in degrees
 #define GRACE 0      // degrees between finish fuel inject and discharge spark
 
@@ -41,34 +41,15 @@ volatile int lastTick;        // last tachometer interrupt
 volatile int lastTickDelta;   // time difference (us) between last tac interrupt and the previous one
 volatile int prevTick;        // previous tachometer interrupt
 volatile int prevTickDelta;   // previous lastTickDelta
-volatile int predictedTickDelta; //predicted tickDelta 
+volatile int predictedTickDelta; //predicted tickDelta
 
 // not needed volatile int toothCount;      // which tooth we're at on the crankshaft
 volatile float lastToothAngle;  // angle of the last tooth that passed by
 
 volatile char recalc;         // flag to recalculate stuff after spark for next cycle
 
+volatile int printStuff;
 
-/////////////////////////////////////////////////////////
-/*               DIAGNOSTIC VARS                       */
-/////////////////////////////////////////////////////////
-
-
-#ifdef DIAGNOSTIC_MODE
-
-volatile int numSparks;
-
-volatile int sparkChargeStart;
-volatile int sparkChargeEnd;
-volatile float actualSparkChargeAngle;
-volatile float actualSparkAngle;
-
-volatile int fuelStart;
-volatile int fuelEnd;
-volatile float actualFuelStartAngle;
-volatile float actualFuelEndAngle;
-
-#endif
 
 ///////////////////////////////////////////////////////////////
 
@@ -83,195 +64,164 @@ unsigned int fuelStartTime;      // in how long to begin injecting fuel
 float fuelEndAngle;     // angle at which to stop injecting fuel
 float fuelDurationAngle;  // duration of time to inject fuel
 
-double airVolume;        // volume of air that the engine will intake in m^3
+float airVolume;        // volume of air that the engine will intake in m^3
 float mapVal;              // manifold air pressure in kPa
 int mapPulseHigh;
+
+int timeBetweenSparks;
+int lastSpark;
+int prevSpark;
+
+
 
 /////////////////////////////////////////////////////////////////
 
 void setup() {
 
-    Serial.begin(115200);
+   Serial.begin(115200);
 
-    pinMode(TAC_IN, INPUT);
-    pinMode(MAP_IN, INPUT);
+   pinMode(TAC_IN, INPUT);
+   pinMode(MAP_IN, INPUT);
 
-    pinMode(FUEL_OUT, OUTPUT);
-    pinMode(SPARK_OUT, OUTPUT);
+   pinMode(FUEL_OUT, OUTPUT);
+   pinMode(SPARK_OUT, OUTPUT);
 
-    chargingSpark = FALSE;
-    fuelOpen = FALSE;
+   chargingSpark = FALSE;
+   fuelOpen = FALSE;
 
-    useFuel = TRUE;            // use fuel on the first cycle and every other cycle thereafter
-    recalc = TRUE;
+   printStuff = 0;
 
-    attachInterrupt(TAC_IN, tacISR, RISING); // set up the tachometer ISR
-    SPARK_TIMER.attachInterrupt(sparkISR);    // set up the spark ISR
-    FUEL_TIMER.attachInterrupt(fuelISR);      // set up the fuel injection ISR
+   useFuel = TRUE;            // use fuel on the first cycle and every other cycle thereafter
+   recalc = TRUE;
 
-    while(instantDPMS * 166667 < 701);
+   attachInterrupt(TAC_IN, tacISR, RISING); // set up the tachometer ISR
+   SPARK_TIMER.attachInterrupt(sparkISR);    // set up the spark ISR
+   FUEL_TIMER.attachInterrupt(fuelISR);      // set up the fuel injection ISR
 
+   while (instantDPMS * 166667 < 701);
 }
 
 void loop() {
 
-    if (recalc) {
+   if (recalc) {
+      printStuff++;
 
-#ifdef DIAGNOSTIC_MODE
-        Serial.print("last tick delta: ");
-        Serial.println(lastTickDelta);
-        Serial.print("predicted tick delta: ");
-        Serial.println(predictedTickDelta);
-        Serial.print("instant dpms");
-        Serial.println(instantDPMS, 9);
-        Serial.print("times sparked ");
-        Serial.println(numSparks);
+      mapPulseHigh = pulseIn(MAP_IN, HIGH);    // virtual engine uses unfiltered PWM, so we don't use ADC
+      mapVal = 100 * (float)mapPulseHigh / (float)(mapPulseHigh + pulseIn(MAP_IN, LOW)); // read in manifold air pressure
 
-        Serial.print("spark charge begin angle ");
-        Serial.println(sparkChargeAngle);
-        Serial.print("ACTUAL spark charge angle ");
-        Serial.println(actualSparkChargeAngle);
-        Serial.print("spark adv ");
-        Serial.println(sparkAdvAngle);
-        Serial.print("ACTUAL spark angle ");
-        Serial.println(actualSparkAngle);
-        Serial.print("spark charge duration: ");
-        Serial.println(sparkChargeEnd - sparkChargeStart);
+      sparkAdvAngle = TDC - tableLookup(&SATable, instantDPMS * 166667, mapVal);  // calculate spark advance angle
 
-        Serial.print("fuel start angle ");
-        Serial.println(fuelStartAngle);
-        Serial.print("actual fuel start angle ");
-        Serial.println(actualFuelStartAngle);
-        Serial.print("fuel end angle ");
-        Serial.println(fuelEndAngle);
-        Serial.print("actual fuel end ");
-        Serial.println(actualFuelEndAngle);
-        Serial.print("fuel injection duration ");
-        Serial.println(fuelDuration);
-        Serial.print("actual fuel injection duration ");
-        Serial.println(fuelEnd - fuelStart);
+      // calculate volume of air to be taken in in m^3
 
-        Serial.println("");
-#endif
+      airVolume = tableLookup(&VETable, instantDPMS * 166667, mapVal) * ENGINE_DISPLACEMENT;
+      //TODO
+      // add constants for amount of fuel that is inject as the injector is opening  and closing (then calculate how much fuel to inject)
+      fuelDuration = airVolume * mapVal * 1301 / (R_CONSTANT * AMBIENT_TEMP * AIR_FUEL_RATIO * MASS_FLOW_RATE);
+
+      fuelDurationAngle = fuelDuration * instantDPMS; // calculate the angular displacement during fuel injection
+      fuelEndAngle = TDC - 60;
+      fuelStartAngle = fuelEndAngle - fuelDurationAngle; // calculate the angle at which to begin fuel injecting
+
+      sparkChargeAngle = sparkAdvAngle - DWELLTIME * instantDPMS; // calculate angle at which to begin charging the spark
+
+      // figure out in how long we need to begin charging spark (how long until sparkChargeAngle)
+      approxAngle = lastToothAngle + (micros() - lastTick) * instantDPMS;
+      sparkChargeTime = (sparkChargeAngle - approxAngle) / instantDPMS;
+
+      // check if we haven't already started charging the spark (i.e. if the spark charge time is in the future)
+      if (sparkChargeTime > 128 && !chargingSpark)
+         SPARK_TIMER.start(sparkChargeTime - 127); // set timer to begin charging spark on time
+
+      // check if we need to fuel on the current cycle
+      if (useFuel) {
+         // figure out in how long we need to begin fuel injecting
+         approxAngle = lastToothAngle + (micros() - lastTick) * instantDPMS;
+         fuelStartTime = (fuelStartAngle - approxAngle) / instantDPMS;
+
+         // check if we haven't already begun fueling (i.e. if the fuel start time is in the future)
+         if (fuelStartTime > 128 && !fuelOpen)
+            FUEL_TIMER.start(fuelStartTime - 127); // set timer to begin injecting on time
+      }
+      recalc = FALSE;
+   }
+
+   else if (printStuff == 10)
+   {
+      printStuff = 0;
+      Serial.print("rpm: ");
+      Serial.println(instantDPMS * 166667);
+      Serial.print("fuel duration: ");
+      Serial.println(fuelDuration);
+      Serial.print("mapval ");
+      Serial.println(mapVal);
+      Serial.print("airvolume ");
+      Serial.println(airVolume);
+
+   }
 
 
-        mapPulseHigh = pulseIn(MAP_IN, HIGH);    // virtual engine uses unfiltered PWM, so we don't use ADC
-        mapVal = (float)mapPulseHigh / (float)(mapPulseHigh + pulseIn(MAP_IN, LOW)); // read in manifold air pressure
-
-        sparkAdvAngle = TDC - tableLookup(&SATable, instantDPMS * 166667, mapVal);  // calculate spark advance angle
-
-        // calculate volume of air to be taken in in m^3
-        
-        airVolume = tableLookup(&VETable, instantDPMS * 166667, mapVal * 100) * ENGINE_DISPLACEMENT;
-        Serial.print("airvolume ");
-        Serial.println(airVolume);
-	//TODO
-        // add constants for amount of fuel that is inject as the injector is opening  and closing (then calculate how much fuel to inject)
-        fuelDuration = airVolume * mapVal * 1013 / (R_CONSTANT * AMBIENT_TEMP * AIR_FUEL_RATIO * MASS_FLOW_RATE);
-        Serial.print("fuelduration ");
-        Serial.println(fuelDuration);
-
-        fuelDurationAngle = fuelDuration * instantDPMS; // calculate the angular displacement during fuel injection
-        fuelEndAngle = TDC - 60;
-        //fuelEndAngle = sparkAdvAngle - GRACE;           // calculate the angle at which to stop fuel injecting
-        fuelStartAngle = fuelEndAngle - fuelDurationAngle; // calculate the angle at which to begin fuel injecting
-
-        sparkChargeAngle = sparkAdvAngle - DWELLTIME * instantDPMS; // calculate angle at which to begin charging the spark
-
-        // figure out in how long we need to begin charging spark (how long until sparkChargeAngle)
-        approxAngle = lastToothAngle + (micros() - lastTick) * instantDPMS;
-        sparkChargeTime = (sparkChargeAngle - approxAngle) / instantDPMS;
-
-        // check if we haven't already started charging the spark (i.e. if the spark charge time is in the future)
-        if (sparkChargeTime > 128 && !chargingSpark)
-            SPARK_TIMER.start(sparkChargeTime-127); // set timer to begin charging spark on time
-
-        // check if we need to fuel on the current cycle
-        if (useFuel) {
-            // figure out in how long we need to begin fuel injecting
-            approxAngle = lastToothAngle + (micros() - lastTick) * instantDPMS;
-            fuelStartTime = (fuelStartAngle - approxAngle) / instantDPMS;
-
-            // check if we haven't already begun fueling (i.e. if the fuel start time is in the future)
-            if (fuelStartTime > 128 && !fuelOpen)
-                FUEL_TIMER.start(fuelStartTime-127); // set timer to begin injecting on time
-        }
-        recalc = FALSE;
-    }
 }
 
 //fuel injection
 void fuelISR()
 {
-    FUEL_TIMER.stop();   // prevent timer from restarting
+   FUEL_TIMER.stop();   // prevent timer from restarting
 
-    if (fuelOpen)  // if currently injecting fuel
-    {
-        digitalWrite(FUEL_OUT, LOW);  // close fuel injector
-#ifdef DIAGNOSTIC_MODE
-        fuelEnd = micros();
-        actualFuelEndAngle = lastToothAngle + (fuelEnd - lastTick) * instantDPMS;
-#endif
-        fuelOpen = FALSE;             // no longer injecting fuel
-    }
-    else           // if currently not injecting fuel
-    {
-        digitalWrite(FUEL_OUT, HIGH); // open fuel injector
-#ifdef DIAGNOSTIC_MODE
-        fuelStart = micros();
-        actualFuelStartAngle = lastToothAngle + (fuelStart - lastTick) * instantDPMS;
-#endif
-        fuelOpen = TRUE;              // currently injecting fuel
-        if(fuelDuration > 128)
-        	FUEL_TIMER.start(fuelDuration-127);  // inject for fuel duration and then stop
-        else
-        	FUEL_TIMER.start(1);
-    }
+   if (fuelOpen)  // if currently injecting fuel
+   {
+      digitalWrite(FUEL_OUT, LOW);  // close fuel injector
+      fuelOpen = FALSE;             // no longer injecting fuel
+   }
+   else           // if currently not injecting fuel
+   {
+      digitalWrite(FUEL_OUT, HIGH); // open fuel injector
+      fuelOpen = TRUE;              // currently injecting fuel
+      if (fuelDuration > 128)
+         FUEL_TIMER.start(fuelDuration - 127); // inject for fuel duration and then stop
+      else
+         FUEL_TIMER.start(1);
+   }
 }
 
 //spark advance
 void sparkISR()
 {
-    SPARK_TIMER.stop();  // prevent timer from restarting
+   SPARK_TIMER.stop();  // prevent timer from restarting
 
-    if (chargingSpark)   // if charging, time to discharge!
-    {
-        // send signal to discharge
-        digitalWrite(SPARK_OUT, LOW);
-#ifdef DIAGNOSTIC_MODE
-        sparkChargeEnd = micros();
-        actualSparkAngle = lastToothAngle + (sparkChargeEnd - lastTick) * instantDPMS;
-#endif
-        chargingSpark = FALSE;  // no longer charging
-        recalc = TRUE;          // time to begin recalculating for the new cycle
-        useFuel = !useFuel;     // if we just fueled, not necessary to fuel on the next cycle
-        numSparks++;
+   if (chargingSpark)   // if charging, time to discharge!
+   {
+      // send signal to discharge
+      digitalWrite(SPARK_OUT, LOW);
+      chargingSpark = FALSE;  // no longer charging
+      lastSpark = prevSpark;
+      prevSpark = micros();
+      timeBetweenSparks = prevSpark - lastSpark;
 
-    }
-    else                 // if not charging, time to charge
-    {
-        // send signal to begin charge
-        digitalWrite(SPARK_OUT, HIGH);
-#ifdef DIAGNOSTIC_MODE
-        sparkChargeStart = micros();
-        actualSparkChargeAngle = lastToothAngle + (sparkChargeStart - lastTick) * instantDPMS;
-#endif
-        chargingSpark = TRUE;   // currently charging spark
-        SPARK_TIMER.start(DWELLTIME-127); // discharge after DWELLTIME us
-    }
+   }
+   else                 // if not charging, time to charge
+   {
+      // send signal to begin charge
+      digitalWrite(SPARK_OUT, HIGH);
+      chargingSpark = TRUE;   // currently charging spark
+      SPARK_TIMER.start(DWELLTIME - 127); // discharge after DWELLTIME us
+   }
 }
 
 // tachometer
 void tacISR()
 {
-    prevTick = lastTick;    // keep track of the previous tachometer tick.
-    lastTick = micros();    // record the current tachometer tick
+   prevTick = lastTick;    // keep track of the previous tachometer tick.
+   lastTick = micros();    // record the current tachometer tick
 
-    prevTickDelta = lastTickDelta;
-    lastTickDelta = lastTick - prevTick; // calculate time between lastTick and prevTick
-    predictedTickDelta = 2 * lastTickDelta - prevTickDelta;
+   prevTickDelta = lastTickDelta;
+   lastTickDelta = lastTick - prevTick; // calculate time between lastTick and prevTick
+   predictedTickDelta = 2 * lastTickDelta - prevTickDelta;
 
-    lastToothAngle = CALIB_ANGLE;
-    // calculate the angular velocity using the time between the last 2 ticks
-    instantDPMS = ANGLE_PER_TOOTH / predictedTickDelta;
+   lastToothAngle = CALIB_ANGLE;
+   // calculate the angular velocity using the time between the last 2 ticks
+   instantDPMS = ANGLE_PER_TOOTH / predictedTickDelta;
+
+   recalc = TRUE;          // time to begin recalculating for the new cycle
+   useFuel = !useFuel;     // if we just fueled, not necessary to fuel on the next cycle
+
 }
