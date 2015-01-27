@@ -9,21 +9,23 @@
    We need to know how wide the table is
    to support multidimensional tables. */
 typedef struct table_t {
-   const float *xVals;
-   const float *yVals;
-   const float *data;
+   float *xVals;
+   float *yVals;
+   float *data;
    int width;
 } table_t;
-
-/*  These are declarations so that programs that #include "table.h"
-   can also be aware of the SATable and VETable. */
-extern table_t SATable;
-extern table_t VETable;
 
 /*  This is a prototype for our tableLookup function.
    It tells programs that #include "table.h" that they can
    use a function called tableLookup which returns a float
    and takes in a pointer to a table_t, an x value, and a y value. */
 float tableLookup(table_t *table, float x, float y);
+
+/*    This is a function used to get table values */
+float getData(table_t *table, int x, int y);
+
+/*    This is a function used to set table values. */
+float setData(table_t *table, int x, int y, float value);
+
 
 #endif

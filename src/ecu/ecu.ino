@@ -109,6 +109,7 @@ void loop() {
       mapPulseHigh = pulseIn(MAP_IN, HIGH);    // virtual engine uses unfiltered PWM, so we don't use ADC
       mapVal = 100 * (float)mapPulseHigh / (float)(mapPulseHigh + pulseIn(MAP_IN, LOW)); // read in manifold air pressure
 
+      ////////////////////////////////////////////////////////// this stuff is still messed up
       sparkAdvAngle = TDC - tableLookup(&SATable, instantDPMS * 166667, mapVal);  // calculate spark advance angle
 
       // calculate volume of air to be taken in in m^3
@@ -117,6 +118,7 @@ void loop() {
       //TODO
       // add constants for amount of fuel that is inject as the injector is opening  and closing (then calculate how much fuel to inject)
       fuelDuration = airVolume * mapVal * 1301 / (R_CONSTANT * AMBIENT_TEMP * AIR_FUEL_RATIO * MASS_FLOW_RATE);
+      ///////////////////////////////////////////////////////// messed up stuff ends here
 
       fuelDurationAngle = fuelDuration * instantDPMS; // calculate the angular displacement during fuel injection
       fuelEndAngle = TDC - 60;
