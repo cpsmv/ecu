@@ -25,7 +25,7 @@ float tableLookup(table_t *table, float x, float y);
 float getData(table_t *table, int x, int y);
 
 /*    This is a function used to set table values. */
-float setData(table_t *table, int x, int y, float value);
+void setData(table_t *table, int x, int y, float value);
 
 
 #endif

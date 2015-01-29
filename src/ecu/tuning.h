@@ -1,3 +1,4 @@
+#include "table.h"
 /* The following is table data.
    Each section contains table data,
    as well a list of numbers for each axis.

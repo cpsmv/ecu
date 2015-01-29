@@ -1,5 +1,6 @@
 #include <DueTimer.h>
 #include "table.h"
+#include "tabledata.h"
 
 #define DIAGNOSTIC_MODE 1
 
