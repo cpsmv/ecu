@@ -25,9 +25,8 @@ float tableLookup(table_t *table, float x, float y) {
    float x_1, x_2, y_1, y_2;
    int xIndex, yIndex;
 
-   if (x > table->xVals[table->width - 1]) {
-      //Serial.print("TABLE LOOKUP OUT Of BOUNDS: ");
-      //Serial.println(x);
+   if (x > table->xVals[table->width - 1] || x < table->xVals[0]) {
+      return -1;
    }
    //Find the indices for each axis between which our desired values fall.
    xIndex = findIndex(table->xVals, x);
