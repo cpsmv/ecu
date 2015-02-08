@@ -11,6 +11,9 @@ The virtual Honda engine
 
 #define TAC_TIMER Timer1
 
+#define TOOTH_COUNT 13;
+
+volatile int currTooth;
 
 volatile unsigned int mapVal;
 
@@ -29,9 +32,11 @@ void setup() {
    mapVal = 128;
    printSpark = 0;
 
+   currTooth = 0;
+
    attachInterrupt(0, spark, FALLING);
 
-   tacTimer = 60000; // starter motor simulation
+   tacTimer = 60000/13; // starter motor simulation
    TAC_TIMER.initialize(tacTimer);
    TAC_TIMER.attachInterrupt(tacSignal);
    TAC_TIMER.start();
@@ -65,9 +70,11 @@ void loop() {
 
 // send tac signals
 void tacSignal() {
-   digitalWrite(TAC_OUT, HIGH);
-   delayMicroseconds(200);
-   digitalWrite(TAC_OUT, LOW);
+   if(++currTooth % 13) {
+      digitalWrite(TAC_OUT, HIGH);
+      delayMicroseconds(100);
+      digitalWrite(TAC_OUT, LOW);
+   }
 }
 
 void increaseMAP() {

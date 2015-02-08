@@ -1,6 +1,6 @@
 #include <DueTimer.h>
 #include "table.h"
-#include "tabledata.h"
+#include "tuning.h"
 
 #define DIAGNOSTIC_MODE 1
 
@@ -18,10 +18,9 @@
 
 #define DWELLTIME 2000 // spark coil dwell time in us
 #define TDC 360      // crankshaft top dead center in degrees
-#define GRACE 0      // degrees between finish fuel inject and discharge spark
 
 #define CALIB_ANGLE 0            // angle of the first tooth after the missing one
-#define ANGLE_PER_TOOTH 360.0f   // angle distance between teeth
+#define ANGLE_PER_TOOTH 27.69f   // angle distance between teeth
 
 #define ENGINE_DISPLACEMENT 49  // volume of the engine in cubic centimeters
 #define AMBIENT_TEMP 298        // ambient temperature in kelvin
@@ -40,11 +39,15 @@ volatile int fuelDuration;    // how long to fuel inject
 
 volatile int lastTick;        // last tachometer interrupt
 volatile int lastTickDelta;   // time difference (us) between last tac interrupt and the previous one
-volatile int prevTick;        // previous tachometer interrupt
+volatile int prevTick;        // tachometer interrupt before the last one
 volatile int prevTickDelta;   // previous lastTickDelta
-volatile int predictedTickDelta; //predicted tickDelta
 
-// not needed volatile int toothCount;      // which tooth we're at on the crankshaft
+volatile int lastRevEnd;        // last tachometer interrupt
+volatile int lastRevDuration;   // time difference (us) between last tac interrupt and the previous one
+volatile int prevRevEnd;        // previous tachometer interrupt
+volatile int prevRevDuration;   // previous lastTickDelta
+volatile int predictedRevDuration; //predicted tickDelta
+
 volatile float lastToothAngle;  // angle of the last tooth that passed by
 
 volatile char recalc;         // flag to recalculate stuff after spark for next cycle
@@ -68,12 +71,6 @@ float fuelDurationAngle;  // duration of time to inject fuel
 float airVolume;        // volume of air that the engine will intake in m^3
 float mapVal;              // manifold air pressure in kPa
 int mapPulseHigh;
-
-int timeBetweenSparks;
-int lastSpark;
-int prevSpark;
-
-
 
 /////////////////////////////////////////////////////////////////
 
@@ -114,10 +111,8 @@ void loop() {
       sparkAdvAngle = TDC - tableLookup(&SATable, instantDPMS * 166667, mapVal);  // calculate spark advance angle
 
       // calculate volume of air to be taken in in m^3
+      airVolume = tableLookup(&VETable, instantDPMS * 166667, mapVal) * ENGINE_DISPLACEMENT * 1E-7;
 
-      airVolume = tableLookup(&VETable, instantDPMS * 166667, mapVal) * ENGINE_DISPLACEMENT;
-      //TODO
-      // add constants for amount of fuel that is inject as the injector is opening  and closing (then calculate how much fuel to inject)
       fuelDuration = airVolume * mapVal * 1301 / (R_CONSTANT * AMBIENT_TEMP * AIR_FUEL_RATIO * MASS_FLOW_RATE);
       ///////////////////////////////////////////////////////// messed up stuff ends here
 
@@ -159,10 +154,7 @@ void loop() {
       Serial.println(mapVal);
       Serial.print("airvolume ");
       Serial.println(airVolume);
-
    }
-
-
 }
 
 //fuel injection
@@ -196,12 +188,8 @@ void sparkISR()
       // send signal to discharge
       digitalWrite(SPARK_OUT, LOW);
       chargingSpark = FALSE;  // no longer charging
-      lastSpark = prevSpark;
-      prevSpark = micros();
-      timeBetweenSparks = prevSpark - lastSpark;
-
    }
-   else                 // if not charging, time to charge
+   else  // if not charging, time to charge
    {
       // send signal to begin charge
       digitalWrite(SPARK_OUT, HIGH);
@@ -218,13 +206,22 @@ void tacISR()
 
    prevTickDelta = lastTickDelta;
    lastTickDelta = lastTick - prevTick; // calculate time between lastTick and prevTick
-   predictedTickDelta = 2 * lastTickDelta - prevTickDelta;
 
-   lastToothAngle = CALIB_ANGLE;
-   // calculate the angular velocity using the time between the last 2 ticks
-   instantDPMS = ANGLE_PER_TOOTH / predictedTickDelta;
-
-   recalc = TRUE;          // time to begin recalculating for the new cycle
-   useFuel = !useFuel;     // if we just fueled, not necessary to fuel on the next cycle
+   // if the difference between the ticks is greater than 1.4 times, we reached a new cycle.
+   if (lastTickDelta > prevTickDelta * 1.4f) {
+      prevRevEnd = lastRevEnd;
+      lastRevEnd = lastTick;
+      prevRevDuration = lastRevDuration;
+      lastRevDuration = lastRevEnd - prevRevEnd;
+      predictedRevDuration = 2 * lastRevDuration - prevRevDuration;
+      lastToothAngle = CALIB_ANGLE;
+      instantDPMS = 360 / predictedRevDuration;
+      recalc = TRUE;          // time to begin recalculating for the new cycle
+      useFuel = !useFuel;     // if we just fueled, not necessary to fuel on the next cycle
+   }
+   else
+   {
+      lastToothAngle += ANGLE_PER_TOOTH;
+   }
 
 }
