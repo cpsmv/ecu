@@ -1,13 +1,14 @@
 #include <TimerOne.h>
 /*
 The virtual Honda engine
- (find out how to) find out amount of fuel injected when injector is opening and closing
  */
-#define MAP_OUT 5
-#define TAC_OUT 13
 
-#define SPARK_IN 2
+#define TAC_OUT 13
+#define MAP_OUT 5
+
 #define FUEL_IN 3
+#define SPARK_IN 2
+
 
 #define TAC_TIMER Timer1
 
@@ -36,7 +37,7 @@ void setup() {
 
    attachInterrupt(0, spark, FALLING);
 
-   tacTimer = 60000/13; // starter motor simulation
+   tacTimer = 60000/13;
    TAC_TIMER.initialize(tacTimer);
    TAC_TIMER.attachInterrupt(tacSignal);
    TAC_TIMER.start();
@@ -59,12 +60,11 @@ void loop() {
          increaseRPM();
    }
 
-   if (printSpark) {
+   if (!(printSpark % 10)) {
       Serial.print("current spark based rpm: ");
       Serial.println(6E7 / (currSparkTime - oldSparkTime));
       Serial.print("current tac timer: ");
       Serial.println(tacTimer);
-      printSpark = 0;
    }
 }
 
@@ -96,13 +96,13 @@ void decreaseMAP() {
 }
 
 void increaseRPM() {
-   if(tacTimer>5000)
+   if(tacTimer>400)
       tacTimer*=(float)5/6;
    TAC_TIMER.setPeriod(tacTimer);
 }
 
 void decreaseRPM() {
-   if(tacTimer<70000)
+   if(tacTimer<6000)
       tacTimer*=(float)7/6;
    TAC_TIMER.setPeriod(tacTimer);
 }
@@ -110,6 +110,6 @@ void decreaseRPM() {
 void spark() {
    oldSparkTime = currSparkTime;
    currSparkTime = micros();
-   printSpark = 1;
+   printSpark++;
 }
 

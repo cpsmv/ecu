@@ -16,15 +16,15 @@
 #define FUEL_TIMER Timer0
 #define SPARK_TIMER Timer1
 
-#define DWELLTIME 2000 // spark coil dwell time in us
-#define TDC 360      // crankshaft top dead center in degrees
+#define DWELLTIME 500 // spark coil dwell time in us
+#define TDC 360.0f      // crankshaft top dead center in degrees
 
 #define CALIB_ANGLE 0            // angle of the first tooth after the missing one
 #define ANGLE_PER_TOOTH 27.69f   // angle distance between teeth
 
-#define ENGINE_DISPLACEMENT 49  // volume of the engine in cubic centimeters
-#define AMBIENT_TEMP 298        // ambient temperature in kelvin
-#define R_CONSTANT 287          // R_specific for dry air in J/kg/K
+#define ENGINE_DISPLACEMENT 49.0f  // volume of the engine in cubic centimeters
+#define AMBIENT_TEMP 298.0f        // ambient temperature in kelvin
+#define R_CONSTANT 287.0f          // R_specific for dry air in J/kg/K
 #define AIR_FUEL_RATIO 14.7f      // air to fuel ratio for octane (MAY NEED REVISION)
 #define MASS_FLOW_RATE  0.0006f         // fuel injection flow rate in kg/s
 
@@ -73,6 +73,9 @@ float mapVal;              // manifold air pressure in kPa
 int mapPulseHigh;
 
 /////////////////////////////////////////////////////////////////
+volatile int cycles = 0;
+volatile int sparks = 0;
+volatile int fuels = 0;
 
 void setup() {
 
@@ -100,20 +103,20 @@ void setup() {
 }
 
 void loop() {
-
    if (recalc) {
       printStuff++;
 
       mapPulseHigh = pulseIn(MAP_IN, HIGH);    // virtual engine uses unfiltered PWM, so we don't use ADC
-      mapVal = 100 * (float)mapPulseHigh / (float)(mapPulseHigh + pulseIn(MAP_IN, LOW)); // read in manifold air pressure
+      mapVal = 100.0f * (float)mapPulseHigh / (float)(mapPulseHigh + pulseIn(MAP_IN, LOW)); // read in manifold air pressure
 
       ////////////////////////////////////////////////////////// this stuff is still messed up
       sparkAdvAngle = TDC - tableLookup(&SATable, instantDPMS * 166667, mapVal);  // calculate spark advance angle
 
       // calculate volume of air to be taken in in m^3
-      airVolume = tableLookup(&VETable, instantDPMS * 166667, mapVal) * ENGINE_DISPLACEMENT * 1E-7;
+      airVolume = tableLookup(&VETable, instantDPMS * 166667, mapVal) * ENGINE_DISPLACEMENT / 1E8;
 
-      fuelDuration = airVolume * mapVal * 1301 / (R_CONSTANT * AMBIENT_TEMP * AIR_FUEL_RATIO * MASS_FLOW_RATE);
+      // airvolume (m^3) * (map in kPa converted to Pa) / (J/(kg*K)) * (K) * (ratio) * (kg/s)
+      fuelDuration = airVolume * mapVal * 1013 / (R_CONSTANT * AMBIENT_TEMP * AIR_FUEL_RATIO * MASS_FLOW_RATE) * 1E6;
       ///////////////////////////////////////////////////////// messed up stuff ends here
 
       fuelDurationAngle = fuelDuration * instantDPMS; // calculate the angular displacement during fuel injection
@@ -129,6 +132,8 @@ void loop() {
       // check if we haven't already started charging the spark (i.e. if the spark charge time is in the future)
       if (sparkChargeTime > 128 && !chargingSpark)
          SPARK_TIMER.start(sparkChargeTime - 127); // set timer to begin charging spark on time
+      else if(!chargingSpark)
+         SPARK_TIMER.start(1);
 
       // check if we need to fuel on the current cycle
       if (useFuel) {
@@ -139,21 +144,29 @@ void loop() {
          // check if we haven't already begun fueling (i.e. if the fuel start time is in the future)
          if (fuelStartTime > 128 && !fuelOpen)
             FUEL_TIMER.start(fuelStartTime - 127); // set timer to begin injecting on time
+         else if(!fuelOpen)
+            FUEL_TIMER.start(1);
       }
       recalc = FALSE;
    }
 
-   else if (printStuff == 10)
+   else if (printStuff == 20)
    {
       printStuff = 0;
-      Serial.print("rpm: ");
-      Serial.println(instantDPMS * 166667);
-      Serial.print("fuel duration: ");
-      Serial.println(fuelDuration);
-      Serial.print("mapval ");
-      Serial.println(mapVal);
-      Serial.print("airvolume ");
-      Serial.println(airVolume);
+      // Serial.print("rpm: ");
+      // Serial.println(instantDPMS * 166667);
+      // Serial.print("fuel duration: ");
+      // Serial.println(fuelDuration);
+      // Serial.print("mapval ");
+      // Serial.println(mapVal);
+      // Serial.print("airvolume ");
+      // Serial.println(airVolume, 8);
+      Serial.print("sparks ");
+      Serial.println(sparks);
+      Serial.print("cycles ");
+      Serial.println(cycles);
+      Serial.print("fuels ");
+      Serial.println(fuels);
    }
 }
 
@@ -166,6 +179,7 @@ void fuelISR()
    {
       digitalWrite(FUEL_OUT, LOW);  // close fuel injector
       fuelOpen = FALSE;             // no longer injecting fuel
+      fuels++;
    }
    else           // if currently not injecting fuel
    {
@@ -188,6 +202,7 @@ void sparkISR()
       // send signal to discharge
       digitalWrite(SPARK_OUT, LOW);
       chargingSpark = FALSE;  // no longer charging
+      sparks++;
    }
    else  // if not charging, time to charge
    {
@@ -215,9 +230,10 @@ void tacISR()
       lastRevDuration = lastRevEnd - prevRevEnd;
       predictedRevDuration = 2 * lastRevDuration - prevRevDuration;
       lastToothAngle = CALIB_ANGLE;
-      instantDPMS = 360 / predictedRevDuration;
+      instantDPMS = 360.0f / (float)predictedRevDuration;
       recalc = TRUE;          // time to begin recalculating for the new cycle
       useFuel = !useFuel;     // if we just fueled, not necessary to fuel on the next cycle
+      cycles++;
    }
    else
    {
