@@ -29,13 +29,15 @@
 #define ANGLE_PER_TOOTH 27.69f   // angle distance between teeth
 #define TDC 360.0f      // crankshaft top dead center in degrees
 
+#define DEGREES_PER_CYCLE 360.0f
+
 #define ENGINE_DISPLACEMENT 49.0f  // volume of the engine in cubic centimeters
 #define AMBIENT_TEMP 298.0f        // ambient temperature in kelvin
 #define R_CONSTANT 287.0f          // R_specific for dry air in J/kg/K
 #define AIR_FUEL_RATIO 14.7f      // air to fuel ratio for octane (MAY NEED REVISION)
 #define MASS_FLOW_RATE  0.0006f         // fuel injection flow rate in kg/s
 
-volatile float instantDPMS;     //pseudoinstantaneous angular velocity in degrees per us
+volatile float engineSpeedDPMS;     //pseudoinstantaneous angular velocity in degrees per us
 
 volatile char fuelOpen;       // whether the fuel injector is open
 volatile char chargingSpark;  // whether the spark is charging
@@ -93,7 +95,7 @@ void setup() {
    digitalWrite(FUEL_OUT, LOW);
    digitalWrite(SPARK_OUT, LOW);
 
-   instantDPMS = 0;
+   engineSpeedDPMS = 0;
 
    chargingSpark = FALSE;
    fuelOpen = FALSE;
@@ -106,13 +108,11 @@ void setup() {
    attachInterrupt(TAC_IN, tacISR, RISING); // set up the tachometer ISR
    SPARK_TIMER.attachInterrupt(sparkISR);    // set up the spark ISR
    FUEL_TIMER.attachInterrupt(fuelISR);      // set up the fuel injection ISR
-
-   while (instantDPMS * 166667 < ACTIVE_RPM);    // wait until the starter motor revs to 300 rpm
 }
 
 void loop() {
    // only recalculate stuff if it is necessary and if the engine is still running
-   if (recalc && instantDPMS * 166667 > ACTIVE_RPM) {
+   if (recalc && engineSpeedDPMS * 166667 > ACTIVE_RPM) {
       // use this to print every n cycles
       printStuff++;
 
@@ -129,7 +129,7 @@ void loop() {
       ////////////////////////////////////////////////////////// 
    
       // calculate volume of air to be taken in in m^3
-      airVolume = tableLookup(&VETable, instantDPMS * 166667, mapVal) * ENGINE_DISPLACEMENT / 1E8;
+      airVolume = tableLookup(&VETable, engineSpeedDPMS * 166667, mapVal) * ENGINE_DISPLACEMENT / 1E8;
 
       // airvolume (m^3) * (map in kPa converted to Pa) / (J/(kg*K)) * (K) * (ratio) * (kg/s)
       fuelDuration = airVolume * mapVal * 1013 / (R_CONSTANT * AMBIENT_TEMP * AIR_FUEL_RATIO * MASS_FLOW_RATE) * 1E6;
@@ -138,18 +138,18 @@ void loop() {
 
       // find out at what angle to begin and end fueling
       fuelEndAngle = TDC - 60;   // finish fueling 60 degrees before TDC
-      fuelDurationAngle = fuelDuration * instantDPMS; // calculate the angular displacement during fuel injection
+      fuelDurationAngle = fuelDuration * engineSpeedDPMS; // calculate the angular displacement during fuel injection
       fuelStartAngle = fuelEndAngle - fuelDurationAngle; // calculate the angle at which to begin fuel injecting
 
       // find out at what angle to begin and end charging the spark
-      sparkAdvAngle = TDC - tableLookup(&SATable, instantDPMS * 166667, mapVal);  // calculate spark advance angle
-      sparkChargeAngle = sparkAdvAngle - DWELLTIME * instantDPMS; // calculate angle at which to begin charging the spark
+      sparkAdvAngle = TDC - tableLookup(&SATable, engineSpeedDPMS * 166667, mapVal);  // calculate spark advance angle
+      sparkChargeAngle = sparkAdvAngle - DWELLTIME * engineSpeedDPMS; // calculate angle at which to begin charging the spark
 
       // get current approximate angle
-      approxAngle = lastToothAngle + (micros() - lastTick) * instantDPMS;
+      approxAngle = lastToothAngle + (micros() - lastTick) * engineSpeedDPMS;
 
       // figure out how long until sparkChargeAngle
-      sparkChargeTime = (sparkChargeAngle - approxAngle) / instantDPMS;
+      sparkChargeTime = (sparkChargeAngle - approxAngle) / engineSpeedDPMS;
 
       // check if we haven't already started charging the spark
       if (sparkChargeTime > INTERRUPT_LATENCY_US && !chargingSpark)
@@ -161,10 +161,10 @@ void loop() {
       if (useFuel) 
       {
          // get current approximate angle 
-         approxAngle = lastToothAngle + (micros() - lastTick) * instantDPMS;
+         approxAngle = lastToothAngle + (micros() - lastTick) * engineSpeedDPMS;
 
          // figure out in how long we need to begin fuel injecting
-         fuelStartTime = (fuelStartAngle - approxAngle) / instantDPMS;
+         fuelStartTime = (fuelStartAngle - approxAngle) / engineSpeedDPMS;
 
          // check if we havent already begun fueling
          if (fuelStartTime > INTERRUPT_LATENCY_US && !fuelOpen)
@@ -185,7 +185,7 @@ void loop() {
       Serial.print("       ");
       Serial.print(fuelDuration);
       Serial.print("       ");
-      Serial.println(instantDPMS * 166667);
+      Serial.println(engineSpeedDPMS * 166667);
    }
 }
 
@@ -247,7 +247,7 @@ void tacISR()
       lastRevDuration = lastRevEnd - prevRevEnd;
       predictedRevDuration = 2 * lastRevDuration - prevRevDuration;
       lastToothAngle = CALIB_ANGLE;
-      instantDPMS = 360.0f / (float)predictedRevDuration;
+      engineSpeedDPMS = DEGREES_PER_CYCLE / (float)predictedRevDuration;
    }
    else
    {
@@ -256,7 +256,7 @@ void tacISR()
       if(lastToothAngle > TDC)
       {
          recalc = true;          // new cycle means we should recalculate!
-         lastToothAngle -= TDC;  // since we passed 360 degrees, normalize last tooth angle
+         lastToothAngle -= DEGREES_PER_CYCLE;  // since we passed TDC, normalize lastToothAngle for the next cycle
          useFuel = !useFuel;     // if we just fueled, not necessary to fuel on the next cycle
       }
          
