@@ -26,13 +26,10 @@ float tableLookup(table_t *table, float x, float y) {
    float x_1, x_2, y_1, y_2;
    int xIndex, yIndex;
 
-   if (x > table->xVals[table->width - 1] || x < table->xVals[0]) {
-      Serial.print("TABLE LOOKUP OUT OF BOUNDS: ");
-      Serial.print(x);
-      Serial.print(" OF MAX ");
-      Serial.println(table->xVals[table->width-1]);
-
+   if (x < table->xVals[0]) {
+      return table->defaultVal;
    }
+
    //Find the indices for each axis between which our desired values fall.
    xIndex = findIndex(table->xVals, x);
    yIndex = findIndex(table->yVals, y);

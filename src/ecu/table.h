@@ -13,6 +13,7 @@ typedef struct table_t {
    float *yVals;
    float *data;
    int width;
+   float defaultVal;
 } table_t;
 
 /*  This is a prototype for our tableLookup function.

@@ -4,7 +4,7 @@
    as well a list of numbers for each axis.
    This is the section where we would "tune" the ECU. */
 float yAxisVE[] = {30.1, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 98, 100};
-float xAxisVE[] = {501, 801, 1101, 1401, 2001, 2601, 3101, 3700, 4300, 4900, 5400, 6000, 6500, 7000, 7200, 15001};
+float xAxisVE[] = {501, 801, 1101, 1401, 2001, 2601, 3101, 3700, 4300, 4900, 5400, 6000, 6500, 7000, 7200, 7500};
 float dataVE[][16] = {
    {28, 30, 30, 37, 36, 36, 36, 36, 35, 35, 35, 35, 34, 34, 34, 34},
    {31, 31, 31, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38},
@@ -23,9 +23,10 @@ float dataVE[][16] = {
    {69, 72, 75, 79, 82, 84, 86, 86, 88, 92, 91, 93, 90, 89, 94, 95},
    {69, 72, 76, 80, 83, 85, 86, 87, 90, 93, 92, 94, 92, 91, 95, 97}
 };
+float defaultVE = 50;
 
 float yAxisSA[] = {20.1, 25, 30, 35, 40, 45, 50, 60, 70, 80, 90, 100};
-float xAxisSA[] = {701, 900, 1200, 1500, 2000, 2600, 3100, 3700, 4300, 4900, 5400, 15000};
+float xAxisSA[] = {701, 900, 1200, 1500, 2000, 2600, 3100, 3700, 4300, 4900, 5400, 6000};
 float dataSA[][12] = {
    {18.6, 19.2, 20.0, 20.8, 22.4, 24.3, 25.3, 27.0, 28.7, 29.5, 30.2, 31.0},
    {18.5, 19.0, 19.9, 20.7, 22.3, 24.2, 25.2, 26.9, 28.6, 29.3, 30.0, 37.0},
@@ -40,6 +41,7 @@ float dataSA[][12] = {
    {17.5, 18.1, 18.9, 19.8, 21.5, 23.4, 24.5, 26.2, 28.6, 28.7, 28.7, 28.8},
    {17.2, 17.8, 18.7, 19.5, 21.2, 23.1, 24.2, 25.9, 28.3, 28.3, 28.3, 28.3}
 };
+float defaultSA = 10.0;
 
 /*  These are declarations so that programs that #include "tabledata.h"
    can also be aware of the SATable and VETable. */
@@ -48,5 +50,5 @@ extern table_t VETable;
 
 /*    Here we allocate space for our various table_t's and
    and assign values into each field. */
-table_t SATable = {xAxisSA, yAxisSA, (float*)dataSA, 12};
-table_t VETable = {xAxisVE, yAxisVE, (float*)dataVE, 16};
+table_t SATable = {xAxisSA, yAxisSA, (float*)dataSA, defaultSA, 12};
+table_t VETable = {xAxisVE, yAxisVE, (float*)dataVE, defaultVE, 16};
