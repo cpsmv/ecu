@@ -42,7 +42,7 @@ float tableLookup(table_t *table, float x, float y) {
 
    //Return a bilinear interpolation of the data.
    return (
-      1 / (x_2 - x_1) / (y_2 - y_1) * (
+      1 / ((x_2 - x_1) * (y_2 - y_1)) * (
          getData(table, xIndex, yIndex) * (x_2 - x) * (y_2 - y) +
          getData(table, xIndex + 1, yIndex) * (x - x_1) * (y_2 - y) +
          getData(table, xIndex, yIndex + 1) * (x_2 - x) * (y - y_1) +

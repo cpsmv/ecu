@@ -23,7 +23,7 @@ float dataVE[][16] = {
    {69, 72, 75, 79, 82, 84, 86, 86, 88, 92, 91, 93, 90, 89, 94, 95},
    {69, 72, 76, 80, 83, 85, 86, 87, 90, 93, 92, 94, 92, 91, 95, 97}
 };
-float defaultVE = 50;
+float defaultVE = 30;
 
 float yAxisSA[] = {20.1, 25, 30, 35, 40, 45, 50, 60, 70, 80, 90, 100};
 float xAxisSA[] = {701, 900, 1200, 1500, 2000, 2600, 3100, 3700, 4300, 4900, 5400, 6000};
@@ -50,5 +50,5 @@ extern table_t VETable;
 
 /*    Here we allocate space for our various table_t's and
    and assign values into each field. */
-table_t SATable = {xAxisSA, yAxisSA, (float*)dataSA, defaultSA, 12};
-table_t VETable = {xAxisVE, yAxisVE, (float*)dataVE, defaultVE, 16};
+table_t SATable = {xAxisSA, yAxisSA, (float*)dataSA, 12, defaultSA};
+table_t VETable = {xAxisVE, yAxisVE, (float*)dataVE, 16, defaultVE};

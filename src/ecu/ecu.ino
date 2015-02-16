@@ -25,8 +25,8 @@
 
 #define ACTIVE_RPM 300     // don't do anything below this rpm
 
-#define CALIB_ANGLE 185.0f            // angle of the first tooth after the missing one
-#define ANGLE_PER_TOOTH 27.69f   // angle distance between teeth
+#define CALIB_ANGLE 180.0f            // angle of the first tooth after the missing one
+#define ANGLE_PER_TOOTH 30.0f   // angle distance between teeth
 #define TDC 360.0f      // crankshaft top dead center in degrees
 
 #define DEGREES_PER_CYCLE 360.0f
@@ -102,14 +102,16 @@ void setup() {
 
    printStuff = 0;
 
-   useFuel = TRUE;            // use fuel on the first cycle and every other cycle thereafter
-   recalc = TRUE;
+   useFuel = FALSE;            // use fuel on the first cycle and every other cycle thereafter
+   recalc = FALSE;
 
    attachInterrupt(TAC_IN, tacISR, RISING); // set up the tachometer ISR
    SPARK_TIMER.attachInterrupt(sparkISR);    // set up the spark ISR
    FUEL_TIMER.attachInterrupt(fuelISR);      // set up the fuel injection ISR
 }
 
+
+int mapPulseHigh;
 void loop() {
    // only recalculate stuff if it is necessary and if the engine is still running
    if (recalc && engineSpeedDPMS * 166667 > ACTIVE_RPM) {
@@ -120,6 +122,9 @@ void loop() {
       // NOTE: the last number 0.987167 is 1/1.013 !!!! because division is slow
       mapVal = (75.757 * 3.3 * (float)analogRead(MAP_IN) / (float)1023 + 15.151) * 0.987167;
 
+      //mapPulseHigh = pulseIn(MAP_IN, HIGH);    // virtual engine uses unfiltered PWM, so we don't use ADC
+      //mapVal = 100 * (float)mapPulseHigh / (float)(mapPulseHigh + pulseIn(MAP_IN, LOW)); // read in manifold air pressure
+
       // our map calibration might not be good so we should not exceed 100% of 101.3 kPa
       if(mapVal >= 100) 
          mapVal = 99.9f;
@@ -129,7 +134,7 @@ void loop() {
       ////////////////////////////////////////////////////////// 
    
       // calculate volume of air to be taken in in m^3
-      airVolume = tableLookup(&VETable, engineSpeedDPMS * 166667, mapVal) * ENGINE_DISPLACEMENT / 1E8;
+      airVolume =  tableLookup(&VETable, engineSpeedDPMS * 166667, mapVal) * ENGINE_DISPLACEMENT / 1E8;
 
       // airvolume (m^3) * (map in kPa converted to Pa) / (J/(kg*K)) * (K) * (ratio) * (kg/s)
       fuelDuration = airVolume * mapVal * 1013 / (R_CONSTANT * AMBIENT_TEMP * AIR_FUEL_RATIO * MASS_FLOW_RATE) * 1E6;
@@ -151,11 +156,11 @@ void loop() {
       // figure out how long until sparkChargeAngle
       sparkChargeTime = (sparkChargeAngle - approxAngle) / engineSpeedDPMS;
 
-      // check if we haven't already started charging the spark
+      // check if we're not already charging the spark
       if (sparkChargeTime > INTERRUPT_LATENCY_US && !chargingSpark)
          SPARK_TIMER.start(sparkChargeTime - INTERRUPT_LATENCY_US); // set timer to begin charging spark on time
       else if(!chargingSpark)
-         SPARK_TIMER.start(1); // or set timer to charge spark asap
+         SPARK_TIMER.start(1); // or set timer to charge spark ASAP
 
       // check if we need to fuel on the current cycle
       if (useFuel) 
@@ -178,13 +183,13 @@ void loop() {
    else if (printStuff == 20)
    {
       printStuff = 0;
-      Serial.println("map(%atm)   spark(deg)        fuel pulse(us)         rpm ");
-      Serial.print(mapVal, 3);
+      Serial.println("map(%atm)   spark(deg)     fuel pulse(us)          rpm");
+      Serial.print(mapVal, 6);
       Serial.print("       ");
       Serial.print(sparkAdvAngle, 3);
-      Serial.print("       ");
+      Serial.print("            ");
       Serial.print(fuelDuration);
-      Serial.print("       ");
+      Serial.print("            ");
       Serial.println(engineSpeedDPMS * 166667);
    }
 }
@@ -240,22 +245,23 @@ void tacISR()
    lastTickDelta = lastTick - prevTick; // calculate time between lastTick and prevTick
 
    // if the difference between the ticks is greater than 1.4 times, we reached the calibration position.
-   if (lastTickDelta > prevTickDelta * 1.4f) {
+   if (lastTickDelta > prevTickDelta * 1.75f) {
       prevRevEnd = lastRevEnd;
       lastRevEnd = lastTick;
       prevRevDuration = lastRevDuration;
       lastRevDuration = lastRevEnd - prevRevEnd;
       predictedRevDuration = 2 * lastRevDuration - prevRevDuration;
       lastToothAngle = CALIB_ANGLE;
-      engineSpeedDPMS = DEGREES_PER_CYCLE / (float)predictedRevDuration;
+      //engineSpeedDPMS = DEGREES_PER_CYCLE / (float)predictedRevDuration;
+      engineSpeedDPMS = DEGREES_PER_CYCLE / (float)lastRevDuration;
    }
    else
    {
       lastToothAngle += ANGLE_PER_TOOTH;
       // as soon as we pass top dead center, start a new cycle
-      if(lastToothAngle > TDC)
+      if(lastToothAngle >= TDC)
       {
-         recalc = true;          // new cycle means we should recalculate!
+         recalc = TRUE;          // new cycle means we should recalculate!
          lastToothAngle -= DEGREES_PER_CYCLE;  // since we passed TDC, normalize lastToothAngle for the next cycle
          useFuel = !useFuel;     // if we just fueled, not necessary to fuel on the next cycle
       }

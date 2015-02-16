@@ -13,7 +13,7 @@ The virtual Honda engine
 
 #define TAC_TIMER Timer1
 
-#define TOOTH_COUNT 13;
+#define TOOTH_COUNT 12
 
 volatile int currTooth;
 
@@ -38,7 +38,7 @@ void setup() {
 
    attachInterrupt(0, spark, FALLING);
 
-   tacTimer = 60000/13;
+   tacTimer = 60000/TOOTH_COUNT;
    TAC_TIMER.initialize(tacTimer);
    TAC_TIMER.attachInterrupt(tacSignal);
    TAC_TIMER.start();
@@ -61,9 +61,9 @@ void loop() {
          increaseRPM();
    }
 
-   if (!(printSpark % 10)) {
-      Serial.print("current spark based rpm: ");
-      Serial.println(6E7 / (currSparkTime - oldSparkTime));
+   if (!(printSpark % 20)) {
+      //Serial.print("current spark based rpm: ");
+      //Serial.println(6E7 / (currSparkTime - oldSparkTime));
       Serial.print("current tac timer: ");
       Serial.println(tacTimer);
    }
@@ -71,7 +71,7 @@ void loop() {
 
 // send tac signals
 void tacSignal() {
-   if(++currTooth % 13) {
+   if(++currTooth % TOOTH_COUNT) {
       digitalWrite(TAC_OUT, HIGH);
       delayMicroseconds(100);
       digitalWrite(TAC_OUT, LOW);
@@ -103,7 +103,7 @@ void increaseRPM() {
 }
 
 void decreaseRPM() {
-   if(tacTimer<6000)
+   if(tacTimer<15000)
       tacTimer*=(float)7/6;
    TAC_TIMER.setPeriod(tacTimer);
 }
