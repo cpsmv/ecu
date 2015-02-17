@@ -61,7 +61,7 @@ void loop() {
          increaseRPM();
    }
 
-   if (!(printSpark % 20)) {
+   if (printSpark % 20 == 0) {
       //Serial.print("current spark based rpm: ");
       //Serial.println(6E7 / (currSparkTime - oldSparkTime));
       Serial.print("current tac timer: ");
@@ -71,6 +71,8 @@ void loop() {
 
 // send tac signals
 void tacSignal() {
+   int deviation = tacTimer * 0.15;
+   TAC_TIMER.setPeriod(tacTimer + random(-1*deviation,deviation));
    if(++currTooth % TOOTH_COUNT) {
       digitalWrite(TAC_OUT, HIGH);
       delayMicroseconds(100);

@@ -97,6 +97,9 @@ void setup() {
 
    engineSpeedDPMS = 0;
 
+   prevRevDuration = 0;
+   lastRevDuration = 0;
+
    chargingSpark = FALSE;
    fuelOpen = FALSE;
 
@@ -110,8 +113,11 @@ void setup() {
    FUEL_TIMER.attachInterrupt(fuelISR);      // set up the fuel injection ISR
 }
 
-
+int messedUp = 0;
+int timesCalibrated = 0;
 int mapPulseHigh;
+float actualSparkAngle;
+
 void loop() {
    // only recalculate stuff if it is necessary and if the engine is still running
    if (recalc && engineSpeedDPMS * 166667 > ACTIVE_RPM) {
@@ -180,7 +186,7 @@ void loop() {
       recalc = FALSE;
    }
 
-   else if (printStuff == 20)
+   else if (printStuff == 5)
    {
       printStuff = 0;
       Serial.println("map(%atm)   spark(deg)     fuel pulse(us)          rpm");
@@ -191,6 +197,12 @@ void loop() {
       Serial.print(fuelDuration);
       Serial.print("            ");
       Serial.println(engineSpeedDPMS * 166667);
+      Serial.print("messed up times:");
+      Serial.print(messedUp);
+      Serial.print("    times calibrated: ");
+      Serial.print(timesCalibrated);
+      Serial.print("    actual spark angle: ");
+      Serial.println(actualSparkAngle);
    }
 }
 
@@ -223,6 +235,7 @@ void sparkISR()
    if (chargingSpark)   // if charging, time to discharge!
    {
       // send signal to discharge
+      actualSparkAngle = lastToothAngle + (micros() - lastTick) * engineSpeedDPMS;
       digitalWrite(SPARK_OUT, LOW);
       chargingSpark = FALSE;  // no longer charging
    }
@@ -235,6 +248,9 @@ void sparkISR()
    }
 }
 
+int prevPrevRevDuration;
+int teeth = 0;
+
 // tachometer
 void tacISR()
 {
@@ -244,16 +260,30 @@ void tacISR()
    prevTickDelta = lastTickDelta;
    lastTickDelta = lastTick - prevTick; // calculate time between lastTick and prevTick
 
+   // we only have 11 teeth, [0,10]
+   // so  reloop after we hit the 12th (index 11)
+   if(++teeth > 10)
+   {
+      teeth = 0;
+   }
+
+   if(lastTickDelta > prevTickDelta * 1.9f)
+   {
+      timesCalibrated++;
+      if(lastToothAngle != 120.0f) messedUp++; // count how many times we calibrated inaccurately
+   }
+      
+
    // if the difference between the ticks is greater than 1.4 times, we reached the calibration position.
-   if (lastTickDelta > prevTickDelta * 1.75f) {
+   if (lastTickDelta > prevTickDelta * 1.9f || teeth == 0) {
       prevRevEnd = lastRevEnd;
+      teeth = 0;
       lastRevEnd = lastTick;
+      prevPrevRevDuration = prevRevDuration;
       prevRevDuration = lastRevDuration;
       lastRevDuration = lastRevEnd - prevRevEnd;
-      predictedRevDuration = 2 * lastRevDuration - prevRevDuration;
       lastToothAngle = CALIB_ANGLE;
-      //engineSpeedDPMS = DEGREES_PER_CYCLE / (float)predictedRevDuration;
-      engineSpeedDPMS = DEGREES_PER_CYCLE / (float)lastRevDuration;
+      engineSpeedDPMS = DEGREES_PER_CYCLE * 3.0f / (prevRevDuration + lastRevDuration + prevPrevRevDuration);
    }
    else
    {
