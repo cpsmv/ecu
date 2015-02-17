@@ -4,8 +4,6 @@
 #include "table.h"
 #include "tuning.h"
 
-#define DIAGNOSTIC_MODE 1
-
 #define TRUE 1
 #define FALSE 0
 
@@ -22,9 +20,7 @@
 
 #define DWELLTIME 3000 // spark coil dwell time in us
 
-
 #define ACTIVE_RPM 300     // don't do anything below this rpm
-
 
 #define NUM_TEETH 11
 #define CALIB_ANGLE 180.0f            // angle of the first tooth after the missing one
@@ -41,7 +37,7 @@
 
 #define CALIBRATION_FACTOR 2.0f
 
-volatile float engineSpeedDPMS;     //pseudoinstantaneous angular velocity in degrees per us
+volatile float engineSpeedDPMS;
 volatile float instantDPMS;
 volatile int teethPassed = 0;
 
@@ -57,22 +53,21 @@ volatile int lastTickDelta;   // time difference (us) between last tac interrupt
 volatile int prevTick;        // tachometer interrupt before the last one
 volatile int prevTickDelta;   // previous lastTickDelta
 
-volatile int lastRevEnd;        // last tachometer interrupt
-volatile int lastRevDuration;   // time difference (us) between last tac interrupt and the previous one
-volatile int prevRevEnd;        // previous tachometer interrupt
-volatile int prevRevDuration;   // previous lastTickDelta
-volatile int predictedRevDuration; //predicted tickDelta
+volatile int lastRevEnd;        // time when the last cycle ended
+volatile int lastRevDuration;   // duration of the last revolution
+volatile int prevRevEnd;        // time when the previous cycle ended
+volatile int prevRevDuration;   // duration of the previous cycle
 
 volatile float lastToothAngle;  // angle of the last tooth that passed by
+volatile float nextToothAngle;
+volatile float approxAngle;   // the approximate engine position is calculated here
 
 volatile char recalc;         // flag to recalculate stuff after spark for next cycle
-
-volatile int printStuff;      // use this to print things every n cycles
 
 
 ///////////////////////////////////////////////////////////////
 
-float approxAngle;   // the approximate engine position is calculated here
+
 
 float sparkAdvAngle;    // angle at which to discharge the spark
 float sparkChargeAngle; // angle at which to begin charging the spark
@@ -87,6 +82,8 @@ float airVolume;        // volume of air that the engine will intake in m^3
 float mapVal;              // manifold air pressure in kPa
 
 //////////////////////////////////////////////////////////////
+
+int printStuff;      // use this to print things every n cycles
 
 void setup() {
 
@@ -122,8 +119,8 @@ void setup() {
 int messedUp = 0;
 int timesCalibrated = 0;
 
-char sparkConsumed = true;
-char fuelConsumed = true;
+char sparkConsumed = TRUE;
+char fuelConsumed = TRUE;
 
 void loop() {
    // only recalculate stuff if it is necessary and if the engine is still running
@@ -163,8 +160,8 @@ void loop() {
       sparkAdvAngle = TDC - tableLookup(&SATable, engineSpeedDPMS * 166667, mapVal);  // calculate spark advance angle
       sparkChargeAngle = sparkAdvAngle - DWELLTIME * engineSpeedDPMS; // calculate angle at which to begin charging the spark
 
-      fuelConsumed = false;
-      sparkConsumed = false;
+      fuelConsumed = FALSE;
+      sparkConsumed = FALSE;
 
       recalc = FALSE;
    }
@@ -228,8 +225,6 @@ void sparkISR()
    }
 }
 
-float nextToothAngle;
-
 // tachometer
 void tacISR()
 {
@@ -249,7 +244,7 @@ void tacISR()
       
 
    // if the difference between the ticks is greater than CALIBRATION_FACTOR times, we reached the calibration position.
-   if (lastTickDelta > prevTickDelta * CALIBRATION_FACTOR || ++teethPassed >= NUM_TEETH) {
+   if (++teethPassed >= NUM_TEETH || lastTickDelta > prevTickDelta * CALIBRATION_FACTOR) {
       teethPassed = 0;
       prevRevEnd = lastRevEnd;
       lastRevEnd = lastTick;
@@ -278,16 +273,16 @@ void tacISR()
       approxAngle = lastToothAngle + (micros() - lastTick) * instantDPMS;
       sparkChargeTime = (sparkChargeAngle - approxAngle) / instantDPMS;
       SPARK_TIMER.start(sparkChargeTime - INTERRUPT_LATENCY_US); // set timer to begin charging spark on time
-      sparkConsumed = true;
+      sparkConsumed = TRUE;
    }
 
    // if we're not fueling and we need to fuel and the fuel start angle is between the next two tac ticks
-   if (!fuelOpen && useFuel && fuelStartAngle < nextToothAngle + ANGLE_PER_TOOTH && nextToothAngle <= fuelStartAngle) 
+   if (!fuelConsumed && !fuelOpen && useFuel && fuelStartAngle < nextToothAngle + ANGLE_PER_TOOTH && nextToothAngle <= fuelStartAngle) 
    {
       approxAngle = lastToothAngle + (micros() - lastTick) * instantDPMS;
       fuelStartTime = (fuelStartAngle - approxAngle) / instantDPMS;
       FUEL_TIMER.start(fuelStartTime - INTERRUPT_LATENCY_US); // set timer to begin injecting on time
-      fuelConsumed = true;
+      fuelConsumed = TRUE;
    }
 
 }
