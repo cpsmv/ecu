@@ -15,7 +15,7 @@ The virtual Honda engine
 
 #define TOOTH_COUNT 12
 
-#define TAC_DEVIATION 0.15;
+#define TAC_DEVIATION 0.2f;
 
 volatile int currTooth;
 
@@ -35,12 +35,15 @@ void setup() {
 
    mapVal = 128;
    printSpark = 0;
+   tacTimer = 60000/TOOTH_COUNT;
+   Serial.print("current tac timer: ");
+   Serial.println(tacTimer);
 
    currTooth = 0;
 
-   attachInterrupt(0, spark, FALLING);
+   //attachInterrupt(0, spark, FALLING);
 
-   tacTimer = 60000/TOOTH_COUNT;
+   
    TAC_TIMER.initialize(tacTimer);
    TAC_TIMER.attachInterrupt(tacSignal);
    TAC_TIMER.start();
@@ -61,13 +64,6 @@ void loop() {
          decreaseRPM();
       if (input == '+')
          increaseRPM();
-   }
-
-   if (printSpark % 20 == 0) {
-      //Serial.print("current spark based rpm: ");
-      //Serial.println(6E7 / (currSparkTime - oldSparkTime));
-      Serial.print("current tac timer: ");
-      Serial.println(tacTimer);
    }
 }
 
@@ -104,12 +100,16 @@ void increaseRPM() {
    if(tacTimer>400)
       tacTimer*=(float)5/6;
    TAC_TIMER.setPeriod(tacTimer);
+   Serial.print("current tac timer: ");
+   Serial.println(tacTimer);
 }
 
 void decreaseRPM() {
    if(tacTimer<15000)
       tacTimer*=(float)7/6;
    TAC_TIMER.setPeriod(tacTimer);
+   Serial.print("current tac timer: ");
+   Serial.println(tacTimer);
 }
 
 void spark() {
