@@ -7,6 +7,8 @@
 #define TRUE 1
 #define FALSE 0
 
+#define KILL_SWITCH_IN 13
+
 #define INTERRUPT_LATENCY_US 127
 
 #define TAC_IN  2  // pin used for tachometer
@@ -18,12 +20,12 @@
 #define FUEL_TIMER Timer0
 #define SPARK_TIMER Timer1
 
-#define DWELLTIME 3000 // spark coil dwell time in us
+#define DWELLTIME 3500 // spark coil dwell time in us
 
 #define ACTIVE_RPM 300     // don't do anything below this rpm
 
 #define NUM_TEETH 11
-#define CALIB_ANGLE 180.0f            // angle of the first tooth after the missing one
+#define CALIB_ANGLE 175.0f            // angle of the first tooth after the missing one
 #define ANGLE_PER_TOOTH 30.0f   // angle distance between teeth
 #define TDC 360.0f      // crankshaft top dead center in degrees
 
@@ -35,7 +37,7 @@
 #define AIR_FUEL_RATIO 14.7f      // air to fuel ratio for octane (MAY NEED REVISION)
 #define MASS_FLOW_RATE  0.0006f         // fuel injection flow rate in kg/s
 
-#define CALIBRATION_FACTOR 2.3f
+#define CALIBRATION_FACTOR 1.9f
 
 volatile float engineSpeedDPMS;
 volatile float instantDPMS;
@@ -67,7 +69,7 @@ volatile char recalc;         // flag to recalculate stuff after spark for next 
 
 ///////////////////////////////////////////////////////////////
 
-
+int killSwitch;
 
 float sparkAdvAngle;    // angle at which to discharge the spark
 float sparkChargeAngle; // angle at which to begin charging the spark
@@ -95,11 +97,13 @@ void setup() {
    pinMode(FUEL_OUT, OUTPUT);
    pinMode(SPARK_OUT, OUTPUT);
 
+   pinMode(KILL_SWITCH_IN, INPUT);
+
    digitalWrite(FUEL_OUT, LOW);
    digitalWrite(SPARK_OUT, LOW);
 
    engineSpeedDPMS = 0;
-
+   killSwitch = digitalRead(KILL_SWITCH_IN);
    prevRevDuration = 0;
    lastRevDuration = 0;
 
@@ -111,6 +115,7 @@ void setup() {
    useFuel = FALSE;            // use fuel on the first cycle and every other cycle thereafter
    recalc = FALSE;
 
+   attachInterrupt(KILL_SWITCH_IN, killSwitchISR, CHANGE);
    attachInterrupt(TAC_IN, tacISR, RISING); // set up the tachometer ISR
    SPARK_TIMER.attachInterrupt(sparkISR);    // set up the spark ISR
    FUEL_TIMER.attachInterrupt(fuelISR);      // set up the fuel injection ISR
@@ -124,9 +129,11 @@ char fuelConsumed = TRUE;
 float lastMessedUpAngle;
 int lastMessedUpToothCount;
 
+int volEff;
+
 void loop() {
    // only recalculate stuff if it is necessary and if the engine is still running
-   if (recalc && engineSpeedDPMS * 166667 > ACTIVE_RPM) {
+   if (killSwitch && recalc && engineSpeedDPMS * 166667 > ACTIVE_RPM) {
       // use this to print every n cycles
       printStuff++;
 
@@ -144,13 +151,15 @@ void loop() {
       /////////////////////////////////////////////////////////
       //     FUEL PULSE DURATION CALCULATION
       ////////////////////////////////////////////////////////// 
-   
+      volEff = tableLookup(&VETable, engineSpeedDPMS * 166667, mapVal);
+
       // calculate volume of air to be taken in in m^3
-      airVolume =  tableLookup(&VETable, engineSpeedDPMS * 166667, mapVal) * ENGINE_DISPLACEMENT / 1E8;
+      airVolume =  volEff * ENGINE_DISPLACEMENT / 1E8;
 
       // airvolume (m^3) * (map in kPa converted to Pa) / (J/(kg*K)) * (K) * (ratio) * (kg/s)
       fuelDuration = airVolume * mapVal * 1013 / (R_CONSTANT * AMBIENT_TEMP * AIR_FUEL_RATIO * MASS_FLOW_RATE) * 1E6;
 
+      if(volEff < 0) fuelDuration = 3500;
       ///////////////////////////////////////////////////////// 
 
       // find out at what angle to begin and end fueling
@@ -168,7 +177,7 @@ void loop() {
       recalc = FALSE;
    }
 
-   else if (printStuff == 20)
+   else if (printStuff == 10)
    {
       printStuff = 0;
       Serial.println("map(%atm)   spark(deg)     fuel pulse(us)          rpm");
@@ -305,4 +314,11 @@ void tacISR()
       fuelConsumed = TRUE;
    }
 
+}
+
+void killSwitchISR()
+{
+   killSwitch = digitalRead(KILL_SWITCH_IN);
+   Serial.print("KILL SWITCH ");
+   Serial.println(killSwitch);
 }

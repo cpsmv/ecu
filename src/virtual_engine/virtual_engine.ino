@@ -42,7 +42,6 @@ void setup() {
    currTooth = 0;
 
    //attachInterrupt(0, spark, FALLING);
-
    
    TAC_TIMER.initialize(tacTimer);
    TAC_TIMER.attachInterrupt(tacSignal);
