@@ -7,6 +7,8 @@
 #define TRUE 1
 #define FALSE 0
 
+#define SERIAL_INTERFACE Serial
+
 #define KILL_SWITCH_IN 13
 
 #define INTERRUPT_LATENCY_US 127
@@ -89,7 +91,7 @@ int printStuff;      // use this to print things every n cycles
 
 void setup() {
 
-   Serial.begin(115200);
+   SERIAL_INTERFACE.begin(115200);
 
    pinMode(TAC_IN, INPUT);
    pinMode(MAP_IN, INPUT);
@@ -180,20 +182,20 @@ void loop() {
    else if (printStuff == 10)
    {
       printStuff = 0;
-      Serial.println("map(%atm)   spark(deg)     fuel pulse(us)          rpm");
-      Serial.print(mapVal, 6);
-      Serial.print("       ");
-      Serial.print(sparkAdvAngle, 3);
-      Serial.print("            ");
-      Serial.print(fuelDuration);
-      Serial.print("            ");
-      Serial.println(engineSpeedDPMS * 166667);
-      Serial.print("messed up times:");
-      Serial.print(messedUp);
-      Serial.print("    times calibrated: ");
-      Serial.print(timesCalibrated);
-      Serial.print("    real spark angle: ");
-      Serial.println(realSparkAngle);
+      SERIAL_INTERFACE.println("map(%atm)   spark(deg)     fuel pulse(us)          rpm");
+      SERIAL_INTERFACE.print(mapVal, 6);
+      SERIAL_INTERFACE.print("       ");
+      SERIAL_INTERFACE.print(sparkAdvAngle, 3);
+      SERIAL_INTERFACE.print("            ");
+      SERIAL_INTERFACE.print(fuelDuration);
+      SERIAL_INTERFACE.print("            ");
+      SERIAL_INTERFACE.println(engineSpeedDPMS * 166667);
+      SERIAL_INTERFACE.print("messed up times:");
+      SERIAL_INTERFACE.print(messedUp);
+      SERIAL_INTERFACE.print("    times calibrated: ");
+      SERIAL_INTERFACE.print(timesCalibrated);
+      SERIAL_INTERFACE.print("    real spark angle: ");
+      SERIAL_INTERFACE.println(realSparkAngle);
    }
 }
 
@@ -319,6 +321,6 @@ void tacISR()
 void killSwitchISR()
 {
    killSwitch = digitalRead(KILL_SWITCH_IN);
-   Serial.print("KILL SWITCH ");
-   Serial.println(killSwitch);
+   SERIAL_INTERFACE.print("KILL SWITCH ");
+   SERIAL_INTERFACE.println(killSwitch);
 }
