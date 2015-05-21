@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>MainWindow</class>
+ <widget class="QMainWindow" name="MainWindow">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>946</width>
+    <height>595</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>Cal Poly SMV ECU Tuner</string>
+  </property>
+  <widget class="QWidget" name="centralwidget"/>
+  <widget class="QMenuBar" name="menubar">
+   <property name="geometry">
+    <rect>
+     <x>0</x>
+     <y>0</y>
+     <width>946</width>
+     <height>22</height>
+    </rect>
+   </property>
+   <widget class="QMenu" name="menuTables">
+    <property name="title">
+     <string>Tab&amp;les</string>
+    </property>
+    <addaction name="actionVolumetric_Efficiency"/>
+    <addaction name="actionSpark_Advance"/>
+   </widget>
+   <widget class="QMenu" name="menuFile">
+    <property name="title">
+     <string>File</string>
+    </property>
+    <addaction name="actionOpen_Profile"/>
+    <addaction name="actionSave_Profile"/>
+    <addaction name="actionSave_Profile_As"/>
+   </widget>
+   <widget class="QMenu" name="menuSettings">
+    <property name="title">
+     <string>Settings</string>
+    </property>
+    <widget class="QMenu" name="menuSerial_Port">
+     <property name="title">
+      <string>Serial Port</string>
+     </property>
+     <addaction name="actionNo_Devices"/>
+    </widget>
+    <addaction name="menuSerial_Port"/>
+   </widget>
+   <addaction name="menuFile"/>
+   <addaction name="menuTables"/>
+   <addaction name="menuSettings"/>
+  </widget>
+  <action name="actionVolumetric_Efficiency">
+   <property name="text">
+    <string>&amp;Volumetric Efficiency</string>
+   </property>
+  </action>
+  <action name="actionSpark_Advance">
+   <property name="text">
+    <string>&amp;Spark Advance</string>
+   </property>
+  </action>
+  <action name="actionNo_Devices">
+   <property name="enabled">
+    <bool>false</bool>
+   </property>
+   <property name="text">
+    <string>No Devices</string>
+   </property>
+  </action>
+  <action name="actionOpen_Profile">
+   <property name="text">
+    <string>Open Profile...</string>
+   </property>
+  </action>
+  <action name="actionSave_Profile">
+   <property name="text">
+    <string>Save Profile</string>
+   </property>
+  </action>
+  <action name="actionSave_Profile_As">
+   <property name="text">
+    <string>Save Profile As...</string>
+   </property>
+  </action>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>
