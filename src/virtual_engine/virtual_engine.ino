@@ -13,9 +13,9 @@ The virtual Honda engine
 
 #define TAC_TIMER Timer1
 
-#define TOOTH_COUNT 12
+#define TOOTH_COUNT 1
 
-#define TAC_DEVIATION 0.2f;
+#define TAC_DEVIATION 0.05f;
 
 volatile int currTooth;
 
@@ -70,11 +70,11 @@ void loop() {
 void tacSignal() {
    int deviation = tacTimer * TAC_DEVIATION;
    TAC_TIMER.setPeriod(tacTimer + random(-1*deviation,deviation));
-   if(++currTooth % TOOTH_COUNT) {
+   //if(++currTooth % TOOTH_COUNT) {
       digitalWrite(TAC_OUT, HIGH);
       delayMicroseconds(100);
       digitalWrite(TAC_OUT, LOW);
-   }
+   //}
 }
 
 void increaseMAP() {
