@@ -1,3 +1,5 @@
+#include <SPI.h>
+
 // these are above the description because Arduino IDE puts them here!
 #include <DueTimer.h>
 #include <stdio.h>
@@ -30,15 +32,16 @@
 // Preprocessor Defines
 //***********************************************************
 // Pin Definitions 
-#define KILLSWITCH_IN 	3
+#define KILLSWITCH_IN 	9
 #define MAP_IN 			A0
 #define ECT_IN 			A8
 #define IAT_IN			A7
 #define O2_IN 			A1
 #define TPS_IN			A11
-#define TACH_IN			21
+#define TACH_IN			6
 #define SPARK_OUT 		7
 #define FUEL_OUT 		8
+#define DAQ_CS          4
 
 // Timers
 #define FUEL_START_TIMER        Timer0
@@ -46,37 +49,53 @@
 #define SPARK_CHARGE_TIMER      Timer2
 #define SPARK_DISCHARGE_TIMER   Timer3
 
+// SPI
+#define DAQ_MAP_CHANNEL 0
+#define DAQ_O2_CHANNEL  1
+#define DAQ_IAT_CHANNEL 2
+#define DAQ_ECT_CHANNEL 3
+#define DAQ_TPS_CHANNEL 4
+
 // Engine Parameters
 #define DWELL_TIME 3000                 // time required to inductively charge the spark coil [us]
 #define CALIB_ANGLE 30                  // tach sensor position from Top Dead Center, in direction of crankshaft rotation [degrees]
 #define TDC 360                         // Top Dead Center is 360 degrees [degrees]
 #define FUEL_END_ANGLE 120              // when to stop fueling; set for during the intake stroke [degrees]
-#define ENGAGE_RPM 800                  // when to start calculating fuel 
-#define ENGINE_DISPLACEMENT 35.8E-6     // GX35 displacement is 35.8cc, convert to m^3 [1cc = 1E-6 m^3]
+#define ENGINE_DISPLACEMENT 35.8E-6     // GX35 displacement is 35.8cc, converted to m^3 [1cc * 1E-6 = m^3]
 #define MOLAR_MASS_AIR 28.97f           // molar mass of dry air [g/mol]
 #define R_CONSTANT 8.314f               // ideal gas constant [J/(mol*K)]
 #define AIR_FUEL_RATIO 14.7f            // stoichiometric AFR for gasoline [kg/kg] 
 #define MASS_FLOW_RATE 0.0006f          // fueling rate of the injector [kg/s]
 #define VOLTS_PER_ADC_BIT 3.23E-3       // for converting an ADC read to voltage 
 
+// Cranking / Engagement Parameters
+#define ENGAGE_SPEED    100             // engine's rotational speed must be above this speed to fuel or spark [RPM]
+#define CRANKING_SPEED  500             // below this rotational speed, the engine runs a cranking mode fuel enrichment algorithm [RPM]
+#define CRANK_VOL_EFF   0.30f           // hardcoded value for enrichment cranking enrichment algorithm [%]
+#define CRANK_SPARK_ADV 10              // hardcoded cranking spark advance angle [degrees]
+
 //***********************************************************
 // Global Variables
 //*********************************************************** 
+// Modes and Functionality
+bool debugModeSelect = 1;
+bool sensorReadSelect = 0;
+int serialPrintCount;
+
 // Booleans
 bool killswitch;
 bool fuelCycle;
-bool sensorDebugMode = 0;
 
 // Serial Buffer for USB transmission
 char serialBuffer[100];
 
 // State Machine
 typedef enum {
-	NOT_ENGAGED,
-	READ_SENSORS,
-	CALC,
-	SERIAL_OUT,
-	ENGINE_RUNNING
+    READ_SENSORS,
+    CALIBRATION_MODE,
+	CRANKING_MODE,
+	RUNNING_MODE,
+	SERIAL_OUT
 } state;
 
 state currState;
@@ -156,6 +175,31 @@ float getCurrAngle(float angular_speed, unsigned int calib_time){
 }
 
 //***********************************************************
+// SPI DAQ Function
+//*********************************************************** 
+int readDAQ(int readChannel){
+    // for the MCP3304 5V DAQ
+    int byteMS; int byteLS;
+
+    digitalWrite(DAQ_CS, LOW);
+
+    //byte commandByte = B00001000;
+    //commandByte |= (readChannel >> 1);
+    //SPI.transfer(commandByte);
+    SPI.transfer( B00001000 | (readChannel >> 1) );
+
+    //commandByte = B00000000;
+    //commandByte |= (readChannel << 7);
+    byteMS = SPI.transfer( B00000000 | (readChannel << 7) );
+
+    byteLS = SPI.transfer(B00000000);
+
+    digitalWrite(DAQ_CS, HIGH);
+
+    return ( ((byteMS & B00001111) * 256) + byteLS );
+}
+
+//***********************************************************
 // Arduino Setup Function
 //*********************************************************** 
 void setup(void){
@@ -174,145 +218,237 @@ void setup(void){
 	calibAngleTime = 0;				
 	lastCalibAngleTime = 0;			
 
-	// setup all interrupts and timers
+	// set up all interrupts and timers
 	attachInterrupt(KILLSWITCH_IN, killswitch_ISR, CHANGE);
 	attachInterrupt(TACH_IN, tach_ISR, FALLING);
 	SPARK_CHARGE_TIMER.attachInterrupt(chargeSpark_ISR);    	
 	SPARK_DISCHARGE_TIMER.attachInterrupt(dischargeSpark_ISR);
   	FUEL_START_TIMER.attachInterrupt(startFuel_ISR);
-  	FUEL_STOP_TIMER.attachInterrupt(stopFuel_ISR);
+  	FUEL_STOP_TIMER.attachInterrupt(stopFuel_ISR); 
 
+    // start Serial communication
+    Serial.begin(115200);
+    serialPrintCount = 1;   // wait 5 cycles before print any information
+
+    // set up SPI communication to the MCP3304 DAQ
+    SPI.setClockDivider(SPI_CLOCK_DIV8);	// SPI clock: 2MHz
+	SPI.setBitOrder(MSBFIRST);				// MSB mode, as per MCP330x datasheet
+	SPI.setDataMode(SPI_MODE0);             // SPI 0,0 as per MCP330x datasheet 
+	SPI.begin();
 
     killswitch = digitalRead(KILLSWITCH_IN);
-    fuelCycle = false;         // start on a non-fuel cycle (arbitrary, since no CAM position sensor)
-	currState = NOT_ENGAGED;   // start the engine in its disengaged state
+    fuelCycle = false;          // start on a non-fuel cycle (arbitrary, since no CAM position sensor)
+	currState = READ_SENSORS;   // start off by reading sensors
 }
 
 //***********************************************************
 // Arduino Loop Function
 //*********************************************************** 
 void loop(void){
-    if(sensorDebugMode){
+    switch(debugModeSelect){
 
-        MAPval = readMap();
-        IATval = readIAT();
-        ECTval = readECT();
-        TPSval = readTPS();
+        case(1):
+            if(sensorReadSelect){
 
-        sprintf(serialBuffer, "%5f         %5f       %5f       %5f", 
-                               MAPval,     ECTval,   IATval,   TPSval);
+            }
+            else{
 
-        SerialUSB.println("MAP(kPa):   ECT(K):   IAT(K):   TPS(%)");
-        SerialUSB.println(serialBuffer);
+                int MAPraw = analogRead(MAP_IN);
+                int IATraw = analogRead(IAT_IN);
+                int ECTraw = analogRead(ECT_IN);
+                int TPSraw = analogRead(TPS_IN);
 
-    }
-    else{
-    	switch(currState){
+                sprintf(serialBuffer, "%d        %d       %d        %d", 
+                                       MAPraw, ECTraw, IATraw, TPSraw);
 
-    		case NOT_ENGAGED:
-    			if(currAngularSpeed > convertFromRPM(ENGAGE_RPM) && killswitch)
-    				currState = READ_SENSORS;
-    			break;
+                SerialUSB.println("MAP(raw):  ECT(raw):  IAT(raw):  TPS(raw):");
+                SerialUSB.println(serialBuffer);
 
-    		case READ_SENSORS:
-    			currState = CALC;
+                MAPval = readMap();
+                IATval = readIAT();
+                ECTval = readECT();
+                TPSval = readTPS();
+                killswitch = digitalRead(KILLSWITCH_IN);
+                int tachRaw = digitalRead(TACH_IN);
 
-    			MAPval = readMap();
-    			IATval = readIAT();
-    			ECTval = readECT();
-    			TPSval = readTPS();
-    			//O2Val  = readO2();
+                sprintf(serialBuffer, "%2f    %2f    %2f    %2f    %d        %d", 
+                                       MAPval,   (ECTval-273),   (IATval-273), TPSval, killswitch, tachRaw);
 
-    			break;
+                SerialUSB.println("MAP(kPa):    ECT(C):       IAT(C):       TPS(%):   KillSW:  Tach:");
+                SerialUSB.println(serialBuffer);
+                SerialUSB.println("\n");
 
-    		case CALC:
-    			currState = SERIAL_OUT;
+                delay(1000);
+            }
 
-    			if(fuelCycle){
-    				// table lookup for volumetric efficiency 
-          			volEff = tableLookup(&VETable, convertToRPM(currAngularSpeed), MAPval);
+        case(0):
+        	switch(currState){
 
-          			// calculate volume of air inducted into the cylinder
-                    // [m^3]  =    [%]  *        [m^3]         
-          			airVolume =  volEff * ENGINE_DISPLACEMENT;
+                // Constantly pole the all sensors. The "default" state (all state flows eventually lead back here)
+                case READ_SENSORS:
 
-                    // calculate moles of air inducted into the cylinder
-                    // [n]    =   [m^3]   * ([kPa] * [Pa/1kPa]) / ([kg/(mol*K)] * [K] )
-                    airMolar  = airVolume * (MAPval * 1E-3)     / (R_CONSTANT   * IATval);
+                    currState = READ_SENSORS;
 
-                    // calculate moles of fuel to be injected 
-                    // [g fuel] =  [n air] *  [g/n air]     / [g air / g fuel]
-                    fuelMass    = airMolar * MOLAR_MASS_AIR / AIR_FUEL_RATIO;
+                    MAPval = readMap();
+                    IATval = readIAT();
+                    ECTval = readECT();
+                    TPSval = readTPS();
+                    //O2Val  = readO2();
 
-                    // calculate fuel injection duration in microseconds
-                    // [us]      =  [g]     * [kg/1E3 g] * [1E6 us/s] / [kg/s]
-                    fuelDuration = fuelMass * 1E3 / MASS_FLOW_RATE;		
-     				
-                    // calculate the angle at which to begin fuel injecting
-          			// [degrees]   =   [degrees]    - (    [us]     *   [degrees/us]  )
-          			fuelStartAngle = FUEL_END_ANGLE - (fuelDuration * currAngularSpeed); 
+                break;
 
-                    // update current angular position
-          			currEngineAngle = getCurrAngle(currAngularSpeed, calibAngleTime);
+                // when the TACH ISR determines it has reached its calibration angle, this state is selected. This state directs the
+                // flow of the state machine.
+                case CALIBRATION_MODE:
 
-                    // determine when [in us] to start the fuel injection pulse and set a timer appropriately
-                    //                      (  [degrees]    -    [degrees]   ) /   [degrees/us]   
-          			FUEL_START_TIMER.start( (fuelStartAngle - currEngineAngle) / currAngularSpeed );
-          		}
+                    switch(killswitch){
+                        case true:
+                            if( currAngularSpeed < ENGAGE_SPEED )
+                                currState = READ_SENSORS;
+                            else if( currAngularSpeed > CRANKING_SPEED )
+                                currState = RUNNING_MODE;
+                            else
+                                currState = CRANKING_MODE;
+                        case false:
+                            currState = READ_SENSORS;
+                    }
 
-          		// find out at what angle to begin/end charging the spark
-          		sparkDischargeAngle = TDC - tableLookup(&SATable, convertToRPM(currAngularSpeed), MAPval);  // calculate spark advance angle
-          		sparkChargeAngle = sparkDischargeAngle - DWELL_TIME * currAngularSpeed; // calculate angle at which to begin charging the spark
+                break;
 
-                // update current angular position again, for timer precision
-          		currEngineAngle = getCurrAngle(currAngularSpeed, calibAngleTime);
 
-                // determine when [in us] to start charging the coil and set a timer appropriately
-                //                         (   [degrees]    -    [degrees]   ) /    [degrees/us]
-          		SPARK_CHARGE_TIMER.start( (sparkChargeAngle - currEngineAngle) / currAngularSpeed );
+                // CRANKING_MODE uses hardcoded values for Volumetric Efficiency and Spark Advance angle. It is an engine
+                // enrichment algorithm that usually employs a rich AFR ratio.
+        		case CRANKING_MODE:
 
-    			break;
+                    currState = (serialPrintCount == 0 ? SERIAL_OUT : READ_SENSORS); 
 
-    		case SERIAL_OUT:
-    			currState = ENGINE_RUNNING;
+                    if(fuelCycle){
+                        // calculate volume of air inducted into the cylinder, using hardcoded cranking VE
+                        // [m^3]  =    [%]           *        [m^3]         
+                        airVolume =  CRANK_VOL_EFF * ENGINE_DISPLACEMENT;
 
-    			sprintf(serialBuffer, "%5f    %3f         %3f      %4f           %5d", 
-    				convertToRPM(currAngularSpeed), MAPval, volEff, sparkDischargeAngle, fuelDuration);
+                        // calculate moles of air inducted into the cylinder
+                        // [n]    =   [m^3]   * ([kPa] * [Pa/1kPa]) / ([kg/(mol*K)] * [K] )
+                        airMolar  = airVolume * (MAPval * 1E-3)     / (R_CONSTANT   * IATval);
 
-    			SerialUSB.println("RPM:   MAP(kPa):   VE(%):   SPARK(deg):   FUEL PULSE(us):");
-    			SerialUSB.println(serialBuffer);
+                        // calculate moles of fuel to be injected 
+                        // [g fuel] =  [n air] *  [g/n air]     / [g air / g fuel]
+                        fuelMass    = airMolar * MOLAR_MASS_AIR / AIR_FUEL_RATIO;
 
-    			break;
+                        // calculate fuel injection duration in microseconds
+                        // [us]      =  [g]     * [kg/1E3 g] * [1E6 us/s] / [kg/s]
+                        fuelDuration = fuelMass * 1E3 / MASS_FLOW_RATE;     
+                        
+                        // calculate the angle at which to begin fuel injecting
+                        // [degrees]   =   [degrees]    - (    [us]     *   [degrees/us]  )
+                        fuelStartAngle = FUEL_END_ANGLE - (fuelDuration * currAngularSpeed); 
 
-    		case ENGINE_RUNNING:
-                // 
-    			if( convertToRPM(currAngularSpeed) < ENGAGE_RPM ){
-    				currState = NOT_ENGAGED;
-    			}
-    			break;
-    	}
+                        // update current angular position
+                        currEngineAngle = getCurrAngle(currAngularSpeed, calibAngleTime);
+
+                        // determine when [in us] to start the fuel injection pulse and set a timer appropriately
+                        //                      (  [degrees]    -    [degrees]   ) /   [degrees/us]   
+                        FUEL_START_TIMER.start( (fuelStartAngle - currEngineAngle) / currAngularSpeed );
+                    }
+
+                    // find out at what angle to begin/end charging the spark
+                    sparkDischargeAngle = TDC - CRANK_SPARK_ADV;                            // hardcoded cranking spark advance angle
+                    sparkChargeAngle = sparkDischargeAngle - DWELL_TIME * currAngularSpeed; // calculate angle at which to begin charging the spark
+
+                    // update current angular position again, for timer precision
+                    currEngineAngle = getCurrAngle(currAngularSpeed, calibAngleTime);
+
+                    // determine when [in us] to start charging the coil and set a timer appropriately
+                    //                         (   [degrees]    -    [degrees]   ) /    [degrees/us]
+                    SPARK_CHARGE_TIMER.start( (sparkChargeAngle - currEngineAngle) / currAngularSpeed );
+
+        		break;
+
+        		case RUNNING_MODE:
+
+                    currState = (serialPrintCount == 0 ? SERIAL_OUT : READ_SENSORS);
+
+        			if(fuelCycle){
+        				// table lookup for volumetric efficiency 
+              			volEff = tableLookup(&VETable, convertToRPM(currAngularSpeed), MAPval) / 100;
+
+              			// calculate volume of air inducted into the cylinder
+                        // [m^3]  =    [%]  *        [m^3]         
+              			airVolume =  volEff * ENGINE_DISPLACEMENT;
+
+                        // calculate moles of air inducted into the cylinder
+                        // [n]    =   [m^3]   * ([kPa] * [Pa/1kPa]) / ([kg/(mol*K)] * [K] )
+                        airMolar  = airVolume * (MAPval * 1E-3)     / (R_CONSTANT   * IATval);
+
+                        // calculate moles of fuel to be injected 
+                        // [g fuel] =  [n air] *  [g/n air]     / [g air / g fuel]
+                        fuelMass    = airMolar * MOLAR_MASS_AIR / AIR_FUEL_RATIO;
+
+                        // calculate fuel injection duration in microseconds
+                        // [us]      =  [g]     * [kg/1E3 g] * [1E6 us/s] / [kg/s]
+                        fuelDuration = fuelMass * 1E3 / MASS_FLOW_RATE;		
+         				
+                        // calculate the angle at which to begin fuel injecting
+              			// [degrees]   =   [degrees]    - (    [us]     *   [degrees/us]  )
+              			fuelStartAngle = FUEL_END_ANGLE - (fuelDuration * currAngularSpeed); 
+
+                        // update current angular position
+              			currEngineAngle = getCurrAngle(currAngularSpeed, calibAngleTime);
+
+                        // determine when [in us] to start the fuel injection pulse and set a timer appropriately
+                        //                      (  [degrees]    -    [degrees]   ) /   [degrees/us]   
+              			FUEL_START_TIMER.start( (fuelStartAngle - currEngineAngle) / currAngularSpeed );
+              		}
+
+              		// find out at what angle to begin/end charging the spark
+              		sparkDischargeAngle = TDC - tableLookup(&SATable, convertToRPM(currAngularSpeed), MAPval);  // calculate spark advance angle
+              		sparkChargeAngle = sparkDischargeAngle - DWELL_TIME * currAngularSpeed; // calculate angle at which to begin charging the spark
+
+                    // update current angular position again, for timer precision
+              		currEngineAngle = getCurrAngle(currAngularSpeed, calibAngleTime);
+
+                    // determine when [in us] to start charging the coil and set a timer appropriately
+                    //                         (   [degrees]    -    [degrees]   ) /    [degrees/us]
+              		SPARK_CHARGE_TIMER.start( (sparkChargeAngle - currEngineAngle) / currAngularSpeed ); 
+
+        		break;
+
+        		case SERIAL_OUT:
+
+                    currState = READ_SENSORS;
+        		
+        			sprintf(serialBuffer, "%5f    %3f         %3f      %4f           %5d", 
+        				convertToRPM(currAngularSpeed), MAPval, volEff, sparkDischargeAngle, fuelDuration);
+
+        			SerialUSB.println("RPM:   MAP(kPa):   VE(%):   SPARK(deg):   FUEL PULSE(us):");
+        			SerialUSB.println(serialBuffer);
+
+        		break;
+            }
     }
 }
+
 
 //***********************************************************
 // Interrupt Service Routines
 //*********************************************************** 
-void killswitch_ISR(void){
-	killswitch = digitalRead(KILLSWITCH_IN);
-	if(!killswitch){
-		currState = NOT_ENGAGED;
-	}
-}
-
 void tach_ISR(void){
+
+    // all of the following code assumes one full rotation has occurred (with a single toothed
+    // crankshaft, this is true)
+
+    fuelCycle = !fuelCycle;
 	lastCalibAngleTime = calibAngleTime;
 	calibAngleTime = micros();
-	currAngularSpeed = calcSpeed(calibAngleTime, lastCalibAngleTime, currAngularSpeed);
+    currAngularSpeed = calcSpeed(calibAngleTime, lastCalibAngleTime, currAngularSpeed);
 
-	fuelCycle = !fuelCycle;
-	if( currState != NOT_ENGAGED ){
-		currState = READ_SENSORS;
-	}
+    serialPrintCount = (serialPrintCount >= 9 ? serialPrintCount = 0 : serialPrintCount + 1);
+
+    currState = CALIBRATION_MODE;
+}
+
+void killswitch_ISR(void){
+    killswitch = digitalRead(KILLSWITCH_IN);
 }
 
 void chargeSpark_ISR(void){
