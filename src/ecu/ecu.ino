@@ -79,17 +79,6 @@
 //***********************************************************
 // Global Variables
 //*********************************************************** 
-// Modes and Functionality
-bool debugModeSelect = 1;
-int serialPrintCount;
-
-// Booleans
-bool killswitch;
-bool fuelCycle;
-
-// Serial Buffer for USB transmission
-char serialBuffer[100];
-
 // State Machine
 typedef enum {
     READ_SENSORS,
@@ -99,28 +88,39 @@ typedef enum {
 	SERIAL_OUT
 } state;
 
-state currState;
+// Modes and Functionality
+bool debugModeSelect = 1;
+volatile int serialPrintCount;
+
+// Booleans
+volatile bool killswitch;
+volatile bool fuelCycle;
+
+// Serial Buffer for USB transmission
+char serialBuffer[100];
+
+volatile state currState;
 
 // Sensor Readings
-float MAPval;	// Manifold Absolute Pressure reading, w/ calibration curve [kPa]
-float ECTval;   // Engine Coolant Temperature reading, w/ calibration curve [K]
-float IATval;   // Intake Air Temperature reading, w/ calibration curve [K]
-float TPSval;   // Throttle Position Sensor Reading [%]
-float O2Val;    // Oxygen Sensor Reading, w/ calibration curve [AFR]
+volatile float MAPval;	// Manifold Absolute Pressure reading, w/ calibration curve [kPa]
+volatile float ECTval;   // Engine Coolant Temperature reading, w/ calibration curve [K]
+volatile float IATval;   // Intake Air Temperature reading, w/ calibration curve [K]
+volatile float TPSval;   // Throttle Position Sensor Reading [%]
+volatile float O2Val;    // Oxygen Sensor Reading, w/ calibration curve [AFR]
 
 // Real Time Stuff
-float currAngularSpeed;             // current speed [degrees per microsecond]
-unsigned int calibAngleTime;        // time of position calibration [microseconds]
-unsigned int lastCalibAngleTime;    // last posiition calibration time, for RPM calcs [microseconds]
+volatile float currAngularSpeed;             // current speed [degrees per microsecond]
+volatile unsigned int calibAngleTime;        // time of position calibration [microseconds]
+volatile unsigned int lastCalibAngleTime;    // last posiition calibration time, for RPM calcs [microseconds]
 float volEff;                       // volumetric efficiency [% out of 100]
 float airVolume;                    // volume of inducted air [m^3]
 float airMolar;                     // moles of inducted air [mols]
 float fuelMass;                     // mass of fuel to be injected [g]
 float fuelDuration;                 // length of injection pulse [us]
 float fuelDurationDegrees;          // length of injection pulse [degrees]
-float sparkChargeAngle;             // when to start inductively charging the spark coil [degrees]
-float sparkDischargeAngle;          // when to discharge the coil, chargeAngle + DWELL_TIME [degrees]
-float fuelStartAngle;               // when to start the injection pulse [degrees]
+volatile float sparkChargeAngle;             // when to start inductively charging the spark coil [degrees]
+volatile float sparkDischargeAngle;          // when to discharge the coil, chargeAngle + DWELL_TIME [degrees]
+volatile float fuelStartAngle;               // when to start the injection pulse [degrees]
 float currEngineAngle;              // current engine position [degrees]
 
 //***********************************************************
@@ -281,6 +281,10 @@ void loop(void){
 
         delay(1000);
         */
+
+        if( SerialUSB.available() ){
+            
+        }
 
     }
 
