@@ -21,6 +21,7 @@
  *	O2 sensor working
  *	adjust sensor calibrations
  *	temp sensor linear regression
+ *  table lookup end conditions: check end conditions in MapVal!
  *
  */
 
@@ -73,6 +74,8 @@
 // Cranking / Engagement Parameters
 #define ENGAGE_SPEED    100             // engine's rotational speed must be above this speed to fuel or spark [RPM]
 #define CRANKING_SPEED  500             // below this rotational speed, the engine runs a cranking mode fuel enrichment algorithm [RPM]
+#define UPPER_REV_LIMIT 6000            // above this rotational speed, the engine enacts a rev limit algorithm [RPM]
+#define LOWER_REV_LIMIT 5800            // this is the hysteresis for the rev limit. The engine must fall below this speed to resume normal operation [RPM]
 #define CRANK_VOL_EFF   0.30f           // hardcoded value for enrichment cranking enrichment algorithm [%]
 #define CRANK_SPARK_ADV 10              // hardcoded cranking spark advance angle [degrees]
 
@@ -85,8 +88,11 @@ typedef enum {
     CALIBRATION_MODE,
 	CRANKING_MODE,
 	RUNNING_MODE,
+    REV_LIMIT_MODE,
 	SERIAL_OUT
 } state;
+
+volatile state currState;
 
 // Modes and Functionality
 bool debugModeSelect = 1;
@@ -95,11 +101,10 @@ volatile int serialPrintCount;
 // Booleans
 volatile bool killswitch;
 volatile bool fuelCycle;
+bool revLimit;
 
 // Serial Buffer for USB transmission
 char serialBuffer[100];
-
-volatile state currState;
 
 // Sensor Readings
 volatile float MAPval;	// Manifold Absolute Pressure reading, w/ calibration curve [kPa]
@@ -110,6 +115,7 @@ volatile float O2Val;    // Oxygen Sensor Reading, w/ calibration curve [AFR]
 
 // Real Time Stuff
 volatile float currAngularSpeed;             // current speed [degrees per microsecond]
+volatile float currRPM;                      // current revolutions per minute [RPM]
 volatile unsigned int calibAngleTime;        // time of position calibration [microseconds]
 volatile unsigned int lastCalibAngleTime;    // last posiition calibration time, for RPM calcs [microseconds]
 float volEff;                       // volumetric efficiency [% out of 100]
@@ -176,31 +182,6 @@ float getCurrAngle(float angular_speed, unsigned int calib_time){
 }
 
 //***********************************************************
-// SPI DAQ Function
-//*********************************************************** 
-int readDAQ(int readChannel){
-    // for the MCP3304 5V DAQ
-    int byteMS; int byteLS;
-
-    digitalWrite(DAQ_CS, LOW);
-
-    //byte commandByte = B00001000;
-    //commandByte |= (readChannel >> 1);
-    //SPI.transfer(commandByte);
-    SPI.transfer( B00001000 | (readChannel >> 1) );
-
-    //commandByte = B00000000;
-    //commandByte |= (readChannel << 7);
-    byteMS = SPI.transfer( B00000000 | (readChannel << 7) );
-
-    byteLS = SPI.transfer(B00000000);
-
-    digitalWrite(DAQ_CS, HIGH);
-
-    return ( ((byteMS & B00001111) * 256) + byteLS );
-}
-
-//***********************************************************
 // Arduino Setup Function
 //*********************************************************** 
 void setup(void){
@@ -239,6 +220,7 @@ void setup(void){
 
     killswitch = digitalRead(KILLSWITCH_IN);
     fuelCycle = false;          // start on a non-fuel cycle (arbitrary, since no CAM position sensor)
+    revLimit = false;
     currState = READ_SENSORS;   // start off by reading sensors
 }
 
@@ -283,7 +265,7 @@ void loop(void){
         */
 
         if( SerialUSB.available() ){
-            
+
         }
 
     }
@@ -310,14 +292,30 @@ void loop(void){
 
                 switch(killswitch){
                     case true:
-                        if( currAngularSpeed < ENGAGE_SPEED )
-                            currState = READ_SENSORS;
-                        else if( currAngularSpeed > CRANKING_SPEED )
-                            currState = RUNNING_MODE;
-                        else
-                            currState = CRANKING_MODE;
+                        currRPM = convertToRPM(currAngularSpeed);
+
+                        if( revLimit ){
+                            if( currRPM < LOWER_REV_LIMIT)
+                                revLimit = false;
+                                currState = RUNNING_MODE;
+                            else
+                                currState = READ_SENSORS;
+                        }
+                        else{
+                            if( currRPM <= ENGAGE_SPEED )
+                                currState = READ_SENSORS;
+                            else if( currRPM > ENGAGE_SPEED && currRPM <= CRANKING_SPEED )
+                                currState = CRANKING_MODE;
+                            else if( currRPM > CRANKING_SPEED && currRPM <= UPPER_REV_LIMIT )
+                                currState = RUNNING_MODE;
+                            else
+                                currState = REV_LIMIT_MODE;
+                        }
+                    break;
+
                     case false:
                         currState = READ_SENSORS;
+                    break;
                 }
 
             break;
@@ -370,6 +368,8 @@ void loop(void){
 
             break;
 
+            // This state runs during the normal running operation of the engine. The Volumetric Efficiency and 
+            // Spark Advance are determined using fuel map lookup tables. 
             case RUNNING_MODE:
 
                 currState = (serialPrintCount == 0 ? SERIAL_OUT : READ_SENSORS);
@@ -419,6 +419,18 @@ void loop(void){
 
             break;
 
+            // When the engine's RPM is greater than UPPER_REV_LIMIT, the engine must enact a rev limiter algorithm,
+            // to prevent possible damage to the engine internals / hardware. The engine doesn't fuel or spark.
+            case REV_LIMIT_MODE;
+
+                currState = (serialPrintCount == 0 ? SERIAL_OUT : READ_SENSORS);
+
+                SerialUSB.println("ERR: rev limit");
+
+                revLimit = true;
+
+            break;
+
             case SERIAL_OUT:
 
                 currState = READ_SENSORS;
@@ -440,14 +452,14 @@ void loop(void){
 //*********************************************************** 
 void tach_ISR(void){
 
+    lastCalibAngleTime = calibAngleTime;
+    calibAngleTime = micros();
+    currAngularSpeed = calcSpeed(calibAngleTime, lastCalibAngleTime, currAngularSpeed);
+
     // all of the following code assumes one full rotation has occurred (with a single toothed
     // crankshaft, this is true)
 
     fuelCycle = !fuelCycle;
-	lastCalibAngleTime = calibAngleTime;
-	calibAngleTime = micros();
-    currAngularSpeed = calcSpeed(calibAngleTime, lastCalibAngleTime, currAngularSpeed);
-
     serialPrintCount = (serialPrintCount >= 9 ? serialPrintCount = 0 : serialPrintCount + 1);
 
     currState = CALIBRATION_MODE;
