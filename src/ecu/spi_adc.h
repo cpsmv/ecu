@@ -1,6 +1,5 @@
 /*
- *  Naem: spi_adc.h
- *  Date: 6/29/15
+ *  Name: spi_adc.h
  *  Author: Alex Pink
  *
  *  Description:
@@ -16,7 +15,7 @@
  *
  *      (Ch[0]),X,X,X,X,X,X,X
  *
- *  Ch[2-0] refers of which channel on the chip to sample (0 --> 7)
+ *  Ch[2-0] refers of which channel on the chip to sample (0 --> 7, in decimal base)
  *  Differential mode returns the difference of two channels (not used in our application)
  *  Single-ended mode returns the sampled value at the specified channel
  *  The start bit is always high, as it signifies the start of an SPI transmission
@@ -35,6 +34,8 @@
 
 #ifndef SPI_ADC_H
 #define SPI_ADC_H
+
+#define CHIP_SELECT_PIN 4
 
 // return the sampled analog value of the specified channel 
 // operates the MCP3304 in single-ended mode

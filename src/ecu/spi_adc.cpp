@@ -2,7 +2,6 @@
 
 /*
  *  Naem: spi_adc.cpp
- *  Date: 6/29/15
  *  Author: Alex Pink
  *
  *  Description:
@@ -35,8 +34,6 @@
  *  so the sign bit is ignored.
  */
 //#include <SPI.h>
-
-#define CHIP_SELECT_PIN 4
 
 // return the sampled analog value of the specified channel 
 // operates the MCP3304 in single-ended mode

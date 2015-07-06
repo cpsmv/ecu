@@ -2,7 +2,6 @@
 
 /*
  *  Name: ecu.c
- *  Date: 6/30/15
  *  Authors: Ivan Pachev and Alex Pink
  *
  *  Description:
@@ -273,7 +272,7 @@ void loop(void){
     else{
         switch(currState){
 
-            // Constantly pole the all sensors. The "default" state (all state flows eventually lead back here)
+            // Constantly poll the all sensors. The "default" state (all state flows eventually lead back here)
             case READ_SENSORS:
 
                 currState = READ_SENSORS;
@@ -376,7 +375,7 @@ void loop(void){
 
     			if(fuelCycle){
     				// table lookup for volumetric efficiency 
-          			volEff = tableLookup(&VETable, convertToRPM(currAngularSpeed), MAPval) / 100;
+          			volEff = tableLookup(&VETable, convertToRPM(currAngularSpeed), MAPval, ECTval);
 
           			// calculate volume of air inducted into the cylinder
                     // [m^3]  =    [%]  *        [m^3]         
@@ -407,7 +406,7 @@ void loop(void){
           		}
 
           		// find out at what angle to begin/end charging the spark
-          		sparkDischargeAngle = TDC - tableLookup(&SATable, convertToRPM(currAngularSpeed), MAPval);  // calculate spark advance angle
+          		sparkDischargeAngle = TDC - tableLookup(&SATable, convertToRPM(currAngularSpeed), MAPval, ECTval );  // calculate spark advance angle
           		sparkChargeAngle = sparkDischargeAngle - DWELL_TIME * currAngularSpeed; // calculate angle at which to begin charging the spark
 
                 // update current angular position again, for timer precision
