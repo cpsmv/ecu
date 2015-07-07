@@ -18,6 +18,9 @@
 #include "table.h"
 #include <Arduino.h>
 
+//***********************************************************
+// Helper Functions
+//*********************************************************** 
 /* This is a helper function used to calculate
    between which table axis values our desired input values fall. */
 static int findIndex(const float *vals, float in) {
@@ -29,7 +32,39 @@ static int findIndex(const float *vals, float in) {
 //***********************************************************
 // 2D Tables
 //*********************************************************** 
+/*    This is a function used to get table values */
+float get2DData(table_t *table, int x, int y) {
+   return *(table->data + y * table->xAxiswidth + x);
+}
 
+/*    This is a function used to set table values. */
+void set2DData(table_t *table, int x, int y, float value) {
+   *(table->data + y * table->xAxiswidth + x) = value;
+}
+
+/*    This is the main function used to access table data. 
+		Assume all x,y,z values have already been end-condition checked */
+float table2DLookup(table_t *table, float x, float y) {
+   //Find the indices for each axis between which our desired values fall.
+   int xIndex = findIndex(table->xVals, x);
+   int yIndex = findIndex(table->yVals, y);
+
+   //Find the real values of each axis based on the calculated indices.
+   float x_1 = table->xVals[xIndex];
+   float y_1 = table->yVals[yIndex];
+   float x_2 = table->xVals[xIndex + 1];
+   float y_2 = table->yVals[yIndex + 1];
+
+   //Return a bilinear interpolation of the data.
+   return (
+      1 / ((x_2 - x_1) * (y_2 - y_1)) * (
+         getData(table, xIndex, yIndex)         * (x_2 - x) * (y_2 - y) +
+         getData(table, xIndex + 1, yIndex)     * (x - x_1) * (y_2 - y) +
+         getData(table, xIndex, yIndex + 1)     * (x_2 - x) * (y - y_1) +
+         getData(table, xIndex + 1, yIndex + 1) * (x - x_1) * (y - y_1)
+      )
+   );
+}
 
 //***********************************************************
 // 3D Tables
@@ -44,7 +79,8 @@ void set3DData(table_t *table, int x, int y, int z, float value) {
    *(table->data + z * (table->yAxisLength * table->xAxisWidth) + y * table->xAxisWidth + x) = value;
 }
 
-/*    This is the main function used to access table data. */
+/*    This is the main function used to access table data. 
+		Assume all x,y,z values have already been end-condition checked */
 float table3DLookup(table_t *table, float x, float y, float z) {
    //Find the indices for each axis between which our desired values fall.
    int xIndex = findIndex(table->xVals, x);

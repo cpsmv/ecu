@@ -25,10 +25,12 @@
 
 // yAxis values are in kPa
 float yAxisVE[] = {30.1, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 98, 100}; // [kPa]
+
 // old x axis is 501 and 801
 // xAxis values are in RPM
 float xAxisVE[] = {1000, 1050, 1101, 1401, 2001, 2601, 3101, 3700, 4300, 4900, 5400, 6000, 6500, 7000, 7200, 7500}; // [RPM]
-// VE data is in 
+
+// VE data is in % [0.00 to 1.00]
 float dataVE[][16] = {
    {0.28, 0.30, 0.30, 0.37, 0.36, 0.36, 0.36, 0.36, 0.35, 0.35, 0.35, 0.35, 0.34, 0.34, 0.34, 0.34},
    {0.31, 0.31, 0.31, 0.38, 0.38, 0.38, 0.38, 0.38, 0.38, 0.38, 0.38, 0.38, 0.38, 0.38, 0.38, 0.38},
@@ -48,9 +50,14 @@ float dataVE[][16] = {
    {0.69, 0.72, 0.76, 0.80, 0.83, 0.85, 0.86, 0.87, 0.90, 0.93, 0.92, 0.94, 0.92, 0.91, 0.95, 0.97}
 };
 
-float yAxisSA[] = {20.1, 25, 30, 35, 40, 45, 50, 60, 70, 80, 90, 100};
+// yAxis values are in kPa
+float yAxisSA[] = {20.1, 25, 30, 35, 40, 45, 50, 60, 70, 80, 90, 100}; // [kPa]
+
 // old x axis is 701 and 900
-float xAxisSA[] = {1000, 1001, 1200, 1500, 2000, 2600, 3100, 3700, 4300, 4900, 5400, 6000};
+// xAxis values are in RPM
+float xAxisSA[] = {1000, 1001, 1200, 1500, 2000, 2600, 3100, 3700, 4300, 4900, 5400, 6000}; // [RPM]
+
+// VE data is in degrees from TDC 
 float dataSA[][12] = {
    {18.6, 19.2, 20.0, 20.8, 22.4, 24.3, 25.3, 27.0, 28.7, 29.5, 30.2, 31.0},
    {18.5, 19.0, 19.9, 20.7, 22.3, 24.2, 25.2, 26.9, 28.6, 29.3, 30.0, 37.0},
@@ -67,12 +74,12 @@ float dataSA[][12] = {
 };
 
 
-/*  These are declarations so that programs that #include "tabledata.h"
+/*  These are declarations so that programs that #include "tuning.h"
    can also be aware of the SATable and VETable. */
 extern table_t SATable;
 extern table_t VETable;
 
 /*    Here we allocate space for our various table_t's and
    and assign values into each field. */
-table_t SATable = {xAxisSA, yAxisSA, (float*)dataSA, 12, };
-table_t VETable = {xAxisVE, yAxisVE, (float*)dataVE, 16, };
+table2D_t SATable = {xAxisSA, yAxisSA, (float*)dataSA, 12};
+table2D_t VETable = {xAxisVE, yAxisVE, (float*)dataVE, 16};
