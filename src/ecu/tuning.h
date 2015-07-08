@@ -76,8 +76,8 @@ float dataSA[][12] = {
 
 /*  These are declarations so that programs that #include "tuning.h"
    can also be aware of the SATable and VETable. */
-extern table_t SATable;
-extern table_t VETable;
+extern table2D_t SATable;
+extern table2D_t VETable;
 
 /*    Here we allocate space for our various table_t's and
    and assign values into each field. */

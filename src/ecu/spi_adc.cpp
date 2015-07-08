@@ -1,7 +1,8 @@
 #include <SPI.h>
+#include "spi_adc.h"
 
 /*
- *  Naem: spi_adc.cpp
+ *  Name spi_adc.cpp
  *  Author: Alex Pink
  *
  *  Description:
