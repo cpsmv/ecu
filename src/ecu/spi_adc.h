@@ -36,6 +36,10 @@
 #define SPI_ADC_H
 
 #define CHIP_SELECT_PIN 4
+#define SPI_CLK_DIV 42
+
+// set up SPI communication to the MCP3304 DAQ
+void initSPI(void);
 
 // return the sampled analog value of the specified channel 
 // operates the MCP3304 in single-ended mode

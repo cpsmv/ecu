@@ -34,7 +34,14 @@
  *  For our usage, there can never be a negative value (we are not comparing two channels),
  *  so the sign bit is ignored.
  */
-//#include <SPI.h>
+
+// set up SPI communication to the MCP3304 DAQ
+void initSPI(void){
+    SPI.begin(CHIP_SELECT_PIN);
+    SPI.setClockDivider(CHIP_SELECT_PIN, SPI_CLK_DIV);  // SPI clock: 2MHz (84MHz/42)
+    SPI.setDataMode(CHIP_SELECT_PIN, SPI_MODE0);             // SPI 0,0 as per MCP330x datasheet 
+    SPI.setBitOrder(CHIP_SELECT_PIN, MSBFIRST);       // MSB mode, as per MCP330x datasheet
+}
 
 // return the sampled analog value of the specified channel 
 // operates the MCP3304 in single-ended mode

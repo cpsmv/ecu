@@ -17,9 +17,9 @@
  *  TODO LIST:
  *  calibrate Eco Trons injector & MASS_FLOW_RATE
  *  get DAQ to work!
- *	O2 sensor working
- *	adjust sensor calibrations
- *	temp sensor linear regression
+ *  O2 sensor working
+ *  adjust sensor calibrations
+ *  temp sensor linear regression
  *  table lookup end conditions: check end conditions in MapVal!
  *
  */
@@ -32,28 +32,31 @@
 
 /***********************************************************
 **                      D E F I N E S
-//*********************************************************/
+***********************************************************/
 // Mode Definitions
-//#define DIAGNOSTIC_MODE
+#define DIAGNOSTIC_MODE
 //#define DEBUG_MODE
 
 // Pin Definitions 
-#define KILLSWITCH_IN 	9
+#define KILLSWITCH_IN   9
 #define MAP_IN          A0
 #define ECT_IN          A8
 #define IAT_IN          A7
 #define O2_IN           A1
 #define TPS_IN          A11
-#define TACH_IN	        6
+#define TACH_IN         6
 #define SPARK_OUT       7
 #define FUEL_OUT        8
 #define DAQ_CS          4
 
 // Timers
 #define FUEL_START_TIMER        Timer0
-#define FUEL_STOP_TIMER	        Timer1
+#define FUEL_STOP_TIMER         Timer1
 #define SPARK_CHARGE_TIMER      Timer2
 #define SPARK_DISCHARGE_TIMER   Timer3
+
+// Serial
+#define SERIAL_PORT Serial
 
 // SPI
 #define DAQ_MAP_CHANNEL 0
@@ -88,11 +91,11 @@
 // State Machine
 typedef enum {
     READ_SENSORS,
-    CALIBRATION_MODE,
-	CRANKING_MODE,
-	RUNNING_MODE,
-    REV_LIMIT_MODE,
-	SERIAL_OUT
+    CALIBRATION,
+    CRANKING_MODE,
+    RUNNING,
+    REV_LIMITER,
+    SERIAL_OUT
 } state;
 
 volatile state currState;
@@ -110,7 +113,7 @@ bool revLimit;
 char serialBuffer[100];
 
 // Sensor Readings
-volatile float MAPval;	// Manifold Absolute Pressure reading, w/ calibration curve [kPa]
+volatile float MAPval;  // Manifold Absolute Pressure reading, w/ calibration curve [kPa]
 volatile float ECTval;   // Engine Coolant Temperature reading, w/ calibration curve [K]
 volatile float IATval;   // Intake Air Temperature reading, w/ calibration curve [K]
 volatile float TPSval;   // Throttle Position Sensor Reading [%]
@@ -167,9 +170,9 @@ float readIAT(){
 //        [%]    =              [ADC]         / [max ADC]
 #define readTPS() ( (float)analogRead(TPS_IN) / 1023.0f )
 
-#define readO2() ( (float)analogRead(O2_IN) ) 				//TODO: calibration
+#define readO2() ( (float)analogRead(O2_IN) )               //TODO: calibration
 
-#define calcSpeed(CURR_TIME, PREV_TIME, CURR_ANG_SPEED)	( 0.7*(360.0f / (CURR_TIME - PREV_TIME)) + 0.3*(CURR_ANG_SPEED) ) 	//TODO: weighting??
+#define calcSpeed(CURR_TIME, PREV_TIME, CURR_ANG_SPEED) ( 0.7*(360.0f / (CURR_TIME - PREV_TIME)) + 0.3*(CURR_ANG_SPEED) )   //TODO: weighting??
 
 //         [rev/min]                  =    [degrees/us]   * [ (1 rev/360 deg)*(60E6 us/1 min)]
 #define convertToRPM(ANGULAR_SPEED_US) ( ANGULAR_SPEED_US * 166667.0f )
@@ -179,16 +182,15 @@ float readIAT(){
 
 float getCurrAngle(float angular_speed, unsigned int calib_time){
     //[degrees] = [degrees/us]  * (  [us]   -     [us]  ) +  [degrees]
-	float angle = angular_speed * (micros() - calib_time) + CALIB_ANGLE;
+    float angle = angular_speed * (micros() - calib_time) + CALIB_ANGLE;
     // always keep the engine angle less than 360 degrees
-	return angle >= 360 ? angle - 360 : angle;
+    return angle >= 360 ? angle - 360 : angle;
 }
 
 /***********************************************************
 **     A R D U I N O    S E T U P    F U N C T I O N
 ***********************************************************/ 
 void setup(void){
-
     // Set 12-bit ADC Readings
     //analogReadResolution(12);
 
@@ -198,28 +200,26 @@ void setup(void){
     pinMode(SPARK_OUT, OUTPUT);
     pinMode(FUEL_OUT, OUTPUT);
 
-	// Initialize Variables
+    // Initialize Variables
     currAngularSpeed = 0;
-    calibAngleTime = 0;				
-    lastCalibAngleTime = 0;			
+    calibAngleTime = 0;             
+    lastCalibAngleTime = 0;         
 
-	// set up all interrupts and timers
+    // set up all interrupts and timers
     attachInterrupt(KILLSWITCH_IN, killswitch_ISR, CHANGE);
     attachInterrupt(TACH_IN, tach_ISR, FALLING);
-    SPARK_CHARGE_TIMER.attachInterrupt(chargeSpark_ISR);    	
+    SPARK_CHARGE_TIMER.attachInterrupt(chargeSpark_ISR);        
     SPARK_DISCHARGE_TIMER.attachInterrupt(dischargeSpark_ISR);
     FUEL_START_TIMER.attachInterrupt(startFuel_ISR);
     FUEL_STOP_TIMER.attachInterrupt(stopFuel_ISR); 
 
     // start Serial communication
-	Serial.begin(115200);
+    SERIAL_PORT.begin(115200);
+    SERIAL_PORT.println("ITs working");
     serialPrintCount = 1;   // wait 5 cycles before print any information
 
     // set up SPI communication to the MCP3304 DAQ
-    SPI.setClockDivider(SPI_CLOCK_DIV8);	// SPI clock: 2MHz
-    SPI.setBitOrder(MSBFIRST);              // MSB mode, as per MCP330x datasheet
-    SPI.setDataMode(SPI_MODE0);             // SPI 0,0 as per MCP330x datasheet 
-    SPI.begin();
+    initSPI();
 
     killswitch = digitalRead(KILLSWITCH_IN);
     fuelCycle = false;          // start on a non-fuel cycle (arbitrary, since no CAM position sensor)
@@ -233,13 +233,13 @@ void setup(void){
 void loop(void){
 
 #ifdef DIAGNOSTIC_MODE
+  
+    int channelTest = readADC(7);
+    SERIAL_PORT.println(channelTest);
 
-	int channelTest = readADC(7);
-	SerialUSB.println(channelTest);
+    delay(1000);
 
-	delay(1000);
-
-	/*
+    /*
     int MAPraw = analogRead(MAP_IN);
     int IATraw = analogRead(IAT_IN);
     int ECTraw = analogRead(ECT_IN);
@@ -268,10 +268,9 @@ void loop(void){
     delay(1000);
     */
 
-    if( SerialUSB.available() ){
+    if( SERIAL_PORT.available() ){
 
     }
-
 #else
     switch(currState){
 
@@ -290,7 +289,7 @@ void loop(void){
 
         // when the TACH ISR determines it has reached its calibration angle, this state is selected. This state directs the
         // flow of the state machine.
-        case CALIBRATION_MODE:
+        case CALIBRATION:
 
             switch(killswitch){
                 case true:
@@ -299,7 +298,7 @@ void loop(void){
                     if( revLimit ){
                         if( currRPM < LOWER_REV_LIMIT){
                             revLimit = false;
-                            currState = RUNNING_MODE;
+                            currState = RUNNING;
                         }
                         else
                             currState = READ_SENSORS;
@@ -310,9 +309,9 @@ void loop(void){
                         else if( currRPM > ENGAGE_SPEED && currRPM <= CRANKING_SPEED )
                             currState = CRANKING_MODE;
                         else if( currRPM > CRANKING_SPEED && currRPM <= UPPER_REV_LIMIT )
-                            currState = RUNNING_MODE;
+                            currState = RUNNING;
                         else
-                            currState = REV_LIMIT_MODE;
+                            currState = REV_LIMITER;
                     }
                 break;
 
@@ -373,17 +372,17 @@ void loop(void){
 
         // This state runs during the normal running operation of the engine. The Volumetric Efficiency and 
         // Spark Advance are determined using fuel map lookup tables. 
-        case RUNNING_MODE:
+        case RUNNING:
 
             currState = (serialPrintCount == 0 ? SERIAL_OUT : READ_SENSORS);
 
-			if(fuelCycle){
-				// table lookup for volumetric efficiency 
-      			volEff = table2DLookup(&VETable, convertToRPM(currAngularSpeed), MAPval);
+            if(fuelCycle){
+                // table lookup for volumetric efficiency 
+                volEff = table2DLookup(&VETable, convertToRPM(currAngularSpeed), MAPval);
 
-      			// calculate volume of air inducted into the cylinder
+                // calculate volume of air inducted into the cylinder
                 // [m^3]  =    [%]  *        [m^3]         
-      			airVolume =  volEff * ENGINE_DISPLACEMENT;
+                airVolume =  volEff * ENGINE_DISPLACEMENT;
 
                 // calculate moles of air inducted into the cylinder
                 // [n]    =   [m^3]   * ([kPa] * [Pa/1kPa]) / ([kg/(mol*K)] * [K] )
@@ -395,40 +394,40 @@ void loop(void){
 
                 // calculate fuel injection duration in microseconds
                 // [us]      =  [g]     * [kg/1E3 g] * [1E6 us/s] / [kg/s]
-                fuelDuration = fuelMass * 1E3 / MASS_FLOW_RATE;		
- 				
+                fuelDuration = fuelMass * 1E3 / MASS_FLOW_RATE;     
+                
                 // calculate the angle at which to begin fuel injecting
-      			// [degrees]   =   [degrees]    - (    [us]     *   [degrees/us]  )
-      			fuelStartAngle = FUEL_END_ANGLE - (fuelDuration * currAngularSpeed); 
+                // [degrees]   =   [degrees]    - (    [us]     *   [degrees/us]  )
+                fuelStartAngle = FUEL_END_ANGLE - (fuelDuration * currAngularSpeed); 
 
                 // update current angular position
-      			currEngineAngle = getCurrAngle(currAngularSpeed, calibAngleTime);
+                currEngineAngle = getCurrAngle(currAngularSpeed, calibAngleTime);
 
                 // determine when [in us] to start the fuel injection pulse and set a timer appropriately
                 //                      (  [degrees]    -    [degrees]   ) /   [degrees/us]   
-      			FUEL_START_TIMER.start( (fuelStartAngle - currEngineAngle) / currAngularSpeed );
-      		}
+                FUEL_START_TIMER.start( (fuelStartAngle - currEngineAngle) / currAngularSpeed );
+            }
 
-      		// find out at what angle to begin/end charging the spark
-      		sparkDischargeAngle = TDC - table2DLookup(&SATable, convertToRPM(currAngularSpeed), MAPval);  // calculate spark advance angle
-      		sparkChargeAngle = sparkDischargeAngle - DWELL_TIME * currAngularSpeed; // calculate angle at which to begin charging the spark
+            // find out at what angle to begin/end charging the spark
+            sparkDischargeAngle = TDC - table2DLookup(&SATable, convertToRPM(currAngularSpeed), MAPval);  // calculate spark advance angle
+            sparkChargeAngle = sparkDischargeAngle - DWELL_TIME * currAngularSpeed; // calculate angle at which to begin charging the spark
 
             // update current angular position again, for timer precision
-      		currEngineAngle = getCurrAngle(currAngularSpeed, calibAngleTime);
+            currEngineAngle = getCurrAngle(currAngularSpeed, calibAngleTime);
 
             // determine when [in us] to start charging the coil and set a timer appropriately
             //                         (   [degrees]    -    [degrees]   ) /    [degrees/us]
-      		SPARK_CHARGE_TIMER.start( (sparkChargeAngle - currEngineAngle) / currAngularSpeed ); 
+            SPARK_CHARGE_TIMER.start( (sparkChargeAngle - currEngineAngle) / currAngularSpeed ); 
 
         break;
 
         // When the engine's RPM is greater than UPPER_REV_LIMIT, the engine must enact a rev limiter algorithm,
         // to prevent possible damage to the engine internals / hardware. The engine doesn't fuel or spark.
-        case REV_LIMIT_MODE:
+        case REV_LIMITER:
 
             currState = (serialPrintCount == 0 ? SERIAL_OUT : READ_SENSORS);
 
-            SerialUSB.println("ERR: rev limit");
+            SERIAL_PORT.println("ERR: rev limit");
 
             revLimit = true;
 
@@ -437,12 +436,12 @@ void loop(void){
         case SERIAL_OUT:
 
             currState = READ_SENSORS;
-		
-			sprintf(serialBuffer, "%5f    %3f         %3f      %4f           %5d", 
-				convertToRPM(currAngularSpeed), MAPval, volEff, sparkDischargeAngle, fuelDuration);
+        
+            sprintf(serialBuffer, "%5f    %3f         %3f      %4f           %5d", 
+                convertToRPM(currAngularSpeed), MAPval, volEff, sparkDischargeAngle, fuelDuration);
 
-			SerialUSB.println("RPM:   MAP(kPa):   VE(%):   SPARK(deg):   FUEL PULSE(us):");
-			SerialUSB.println(serialBuffer);
+            SERIAL_PORT.println("RPM:   MAP(kPa):   VE(%):   SPARK(deg):   FUEL PULSE(us):");
+            SERIAL_PORT.println(serialBuffer);
 
         break;
     }
@@ -467,7 +466,7 @@ void tach_ISR(void){
     fuelCycle = !fuelCycle;
     serialPrintCount = (serialPrintCount >= 9 ? serialPrintCount = 0 : serialPrintCount + 1);
 
-    currState = CALIBRATION_MODE;
+    currState = CALIBRATION;
 }
 
 void killswitch_ISR(void){
@@ -475,29 +474,29 @@ void killswitch_ISR(void){
 }
 
 void chargeSpark_ISR(void){
-	SPARK_CHARGE_TIMER.stop();
-	// start chargine coil
-	digitalWrite(SPARK_OUT, HIGH);
-	// set discharge timer for dwell time
-	SPARK_DISCHARGE_TIMER.start(DWELL_TIME);
+    SPARK_CHARGE_TIMER.stop();
+    // start chargine coil
+    digitalWrite(SPARK_OUT, HIGH);
+    // set discharge timer for dwell time
+    SPARK_DISCHARGE_TIMER.start(DWELL_TIME);
 }
 
 void dischargeSpark_ISR(void){
     // discharge coil
     digitalWrite(SPARK_OUT, LOW);
-	SPARK_DISCHARGE_TIMER.stop();
+    SPARK_DISCHARGE_TIMER.stop();
 }
 
 void startFuel_ISR(void){
-	FUEL_START_TIMER.stop();
-	// start injecting fuel
-	digitalWrite(FUEL_OUT, HIGH);
-	// set discharge timer for dwell time
-	FUEL_STOP_TIMER.start(fuelDuration);
+    FUEL_START_TIMER.stop();
+    // start injecting fuel
+    digitalWrite(FUEL_OUT, HIGH);
+    // set discharge timer for dwell time
+    FUEL_STOP_TIMER.start(fuelDuration);
 }
 
 void stopFuel_ISR(void){
     // stop injecting fuel
     digitalWrite(FUEL_OUT, LOW);
-	FUEL_STOP_TIMER.stop();
+    FUEL_STOP_TIMER.stop();
 }
