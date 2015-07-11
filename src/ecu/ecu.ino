@@ -16,7 +16,7 @@
  *
  *  TODO LIST:
  *  calibrate Eco Trons injector & MASS_FLOW_RATE
- *  get DAQ to work!
+ *  get ADC to work!
  *  O2 sensor working
  *  adjust sensor calibrations
  *  temp sensor linear regression
@@ -59,11 +59,15 @@
 #define SERIAL_PORT Serial
 
 // SPI
-#define DAQ_MAP_CHANNEL 0
-#define DAQ_O2_CHANNEL  1
-#define DAQ_IAT_CHANNEL 2
-#define DAQ_ECT_CHANNEL 3
-#define DAQ_TPS_CHANNEL 4
+#define MAP_ADC_CHNL 4
+#define O2_ADC_CHNL  0
+#define IAT_ADC_CHNL 2
+#define ECT_ADC_CHNL 3
+#define TPS_ADC_CHNL 1
+
+// Temperature Sensor Settings
+#define POLYNOMIAL_REGRESSION
+//#define LINEAR_REGRESSION
 
 // Engine Parameters
 #define DWELL_TIME 3000                 // time required to inductively charge the spark coil [us]
@@ -75,7 +79,8 @@
 #define R_CONSTANT 8.314f               // ideal gas constant [J/(mol*K)]
 #define AIR_FUEL_RATIO 14.7f            // stoichiometric AFR for gasoline [kg/kg] 
 #define MASS_FLOW_RATE 0.0006f          // fueling rate of the injector [kg/s]
-#define VOLTS_PER_ADC_BIT 3.23E-3       // for converting an ADC read to voltage 
+#define VOLTS_PER_ADC_BIT 1.221E-3//3.23E-3       // for converting an ADC read to voltage 
+#define MAX_ADC_VAL 4095.0f
 
 // Cranking / Engagement Parameters
 #define ENGAGE_SPEED    100             // engine's rotational speed must be above this speed to fuel or spark [RPM]
@@ -137,24 +142,33 @@ float currEngineAngle;              // current engine position [degrees]
 
 /***********************************************************
 **         F U N C T I O N S   &   M A C R O S
-//*********************************************************/ 
+***********************************************************/ 
 float readECT(){
     int rawTemp;
     // temperature sensor is nonlinear, so divided into 2 curves with 3 points
     // temp is below 40 C
-    if( (rawTemp = analogRead(ECT_IN)) > 499 )
-        //      [ADC]  * [V/ADC]           * [C/V]   + ( [83.14 C] + [273 C -> K])
-        return rawTemp * VOLTS_PER_ADC_BIT * -26.79f + 356.14f;
-    // temp is above 40 C
-    else
-        //      [ADC]  * [V/ADC]           * [C/V]   + ( [136.63 C] + [273 C -> K])
-        return rawTemp * VOLTS_PER_ADC_BIT * -60.02f + 409.63f;
+    #ifdef POLYNOMIAL_REGRESSION
+        if( (rawTemp = readADC(ECT_ADC_CHNL)) ){
+
+        }
+    #else 
+        if( (rawTemp = readADC(ECT_ADC_CHNL)) > 499 )
+            //      [ADC]  * [V/ADC]           * [C/V]   + ( [83.14 C] + [273 C -> K])
+            return rawTemp * VOLTS_PER_ADC_BIT * -26.79f + 356.14f;
+        // temp is above 40 C
+        else
+            //      [ADC]  * [V/ADC]           * [C/V]   + ( [136.63 C] + [273 C -> K])
+            return rawTemp * VOLTS_PER_ADC_BIT * -60.02f + 409.63f;
+        
+    #endif
+
 }
 
 float readIAT(){
     int rawTemp;
     // temperature sensor is nonlinear, so divided into 2 linear curves w/ 3 data points
     // temp is below 40 C
+    /*
     if( (rawTemp = analogRead(IAT_IN)) > 499 )
         //      [ADC]  * [V/ADC]           * [C/V]   + ( [83.14 C] + [273 C -> K])
         return rawTemp * VOLTS_PER_ADC_BIT * -26.79f + 356.14f;
@@ -162,13 +176,15 @@ float readIAT(){
     else
         //      [ADC]  * [V/ADC]           * [C/V]   + ( [136.63 C] + [273 C -> K])
         return rawTemp * VOLTS_PER_ADC_BIT * -60.02f + 409.63f;
+    */
+    //if( rawTemp = readADC(IAT_ADC_CHNL) <
 }
 
 //       [kPa]   =              [ADC]         * [V/ADC]           * [kPa/V] + [kPa]
-#define readMap() ( (float)analogRead(MAP_IN) * VOLTS_PER_ADC_BIT * 28.58   + 10.57 )
+#define readMAP() ( (float)analogRead(MAP_IN) * VOLTS_PER_ADC_BIT * 28.58   + 10.57 )
 
 //        [%]    =              [ADC]         / [max ADC]
-#define readTPS() ( (float)analogRead(TPS_IN) / 1023.0f )
+#define readTPS() ( (float)analogRead(TPS_IN) / MAX_ADC_VAL )
 
 #define readO2() ( (float)analogRead(O2_IN) )               //TODO: calibration
 
@@ -215,7 +231,6 @@ void setup(void){
 
     // start Serial communication
     SERIAL_PORT.begin(115200);
-    SERIAL_PORT.println("ITs working");
     serialPrintCount = 1;   // wait 5 cycles before print any information
 
     // set up SPI communication to the MCP3304 DAQ
@@ -233,25 +248,27 @@ void setup(void){
 void loop(void){
 
 #ifdef DIAGNOSTIC_MODE
-  
+    /*
     int channelTest = readADC(7);
     SERIAL_PORT.println(channelTest);
 
     delay(1000);
+    */
 
+    int MAPraw = readADC(MAP_ADC_CHNL);
+    int IATraw = readADC(IAT_ADC_CHNL);
+    int ECTraw = readADC(ECT_ADC_CHNL);
+    int TPSraw = readADC(TPS_ADC_CHNL);
+    int O2raw  = readADC(O2_ADC_CHNL);
+    int channelTest = readADC(7);
+
+    sprintf(serialBuffer, "%d        %d       %d        %d         %d         %d", 
+                           MAPraw, ECTraw, IATraw, TPSraw, O2raw, channelTest);
+
+    SERIAL_PORT.println("MAP(raw):  ECT(raw):  IAT(raw):  TPS(raw):  O2(raw):  Test:");
+    SERIAL_PORT.println(serialBuffer);
     /*
-    int MAPraw = analogRead(MAP_IN);
-    int IATraw = analogRead(IAT_IN);
-    int ECTraw = analogRead(ECT_IN);
-    int TPSraw = analogRead(TPS_IN);
-
-    sprintf(serialBuffer, "%d        %d       %d        %d", 
-                           MAPraw, ECTraw, IATraw, TPSraw);
-
-    SerialUSB.println("MAP(raw):  ECT(raw):  IAT(raw):  TPS(raw):");
-    SerialUSB.println(serialBuffer);
-
-    MAPval = readMap();
+    MAPval = readMAP();
     IATval = readIAT();
     ECTval = readECT();
     TPSval = readTPS();
@@ -261,12 +278,12 @@ void loop(void){
     sprintf(serialBuffer, "%2f    %2f    %2f    %2f    %d        %d", 
                            MAPval,   (ECTval-273),   (IATval-273), TPSval, killswitch, tachRaw);
 
-    SerialUSB.println("MAP(kPa):    ECT(C):       IAT(C):       TPS(%):   KillSW:  Tach:");
-    SerialUSB.println(serialBuffer);
-    SerialUSB.println("\n");
-
-    delay(1000);
+    SERIAL_PORT.println("MAP(kPa):    ECT(C):       IAT(C):       TPS(%):   KillSW:  Tach:");
+    SERIAL_PORT.println(serialBuffer);
+    SERIAL_PORT.println("\n");
     */
+    delay(1000);
+    
 
     if( SERIAL_PORT.available() ){
 
@@ -279,7 +296,7 @@ void loop(void){
 
             currState = READ_SENSORS;
 
-            MAPval = readMap();
+            MAPval = readMAP();
             IATval = readIAT();
             ECTval = readECT();
             TPSval = readTPS();
