@@ -21,14 +21,16 @@
  *  adjust sensor calibrations
  *  temp sensor linear regression
  *  table lookup end conditions: check end conditions in MapVal!
+ *  RPM weighting
  *
  */
-
+#include <Arduino.h>
 #include <DueTimer.h>
 #include <stdio.h>
 #include "table.h"
 #include "tuning.h"
 #include "spi_adc.h"
+#include "thermistor.h"
 
 /***********************************************************
 **                      D E F I N E S
@@ -69,18 +71,23 @@
 #define POLYNOMIAL_REGRESSION
 //#define LINEAR_REGRESSION
 
+// Scientific Constants
+#define AIR_FUEL_RATIO 14.7f            // stoichiometric AFR for gasoline [kg/kg] 
+#define MOLAR_MASS_AIR 28.97f           // molar mass of dry air [g/mol]
+#define R_CONSTANT 8.314f               // ideal gas constant [J/(mol*K)]
+#define TDC 360                         // Top Dead Center is 360 degrees [degrees]
+#define CELSIUS_TO_KELVIN 273.0f
+
+// Electrical Constants
+#define VOLTS_PER_ADC_BIT 1.221E-3//3.23E-3       // for converting an ADC read to voltage 
+#define MAX_ADC_VAL 4095.0f
+
 // Engine Parameters
 #define DWELL_TIME 3000                 // time required to inductively charge the spark coil [us]
 #define CALIB_ANGLE 30                  // tach sensor position from Top Dead Center, in direction of crankshaft rotation [degrees]
-#define TDC 360                         // Top Dead Center is 360 degrees [degrees]
 #define FUEL_END_ANGLE 120              // when to stop fueling; set for during the intake stroke [degrees]
 #define ENGINE_DISPLACEMENT 35.8E-6     // GX35 displacement is 35.8cc, converted to m^3 [1cc * 1E-6 = m^3]
-#define MOLAR_MASS_AIR 28.97f           // molar mass of dry air [g/mol]
-#define R_CONSTANT 8.314f               // ideal gas constant [J/(mol*K)]
-#define AIR_FUEL_RATIO 14.7f            // stoichiometric AFR for gasoline [kg/kg] 
 #define MASS_FLOW_RATE 0.0006f          // fueling rate of the injector [kg/s]
-#define VOLTS_PER_ADC_BIT 1.221E-3//3.23E-3       // for converting an ADC read to voltage 
-#define MAX_ADC_VAL 4095.0f
 
 // Cranking / Engagement Parameters
 #define ENGAGE_SPEED    100             // engine's rotational speed must be above this speed to fuel or spark [RPM]
@@ -106,16 +113,16 @@ typedef enum {
 volatile state currState;
 
 // Modes and Functionality
-bool debugModeSelect = 1;
-volatile int serialPrintCount;
+static bool debugModeSelect = 1;
 
 // Booleans
 volatile bool killswitch;
 volatile bool fuelCycle;
 bool revLimit;
 
-// Serial Buffer for USB transmission
-char serialBuffer[100];
+// Serial 
+static char serialBuffer[100];
+volatile int serialPrintCount;
 
 // Sensor Readings
 volatile float MAPval;  // Manifold Absolute Pressure reading, w/ calibration curve [kPa]
@@ -123,6 +130,10 @@ volatile float ECTval;   // Engine Coolant Temperature reading, w/ calibration c
 volatile float IATval;   // Intake Air Temperature reading, w/ calibration curve [K]
 volatile float TPSval;   // Throttle Position Sensor Reading [%]
 volatile float O2Val;    // Oxygen Sensor Reading, w/ calibration curve [AFR]
+
+// Thermistors
+struct thermistor ECT = {-59.45, 101.51, 40, 100, 5.0, 1.2};
+struct thermistor IAT = {-59.45, 101.11, 40, 100, 5.0, 1.2};
 
 // Real Time Stuff
 volatile float currAngularSpeed;             // current speed [degrees per microsecond]
@@ -143,58 +154,24 @@ float currEngineAngle;              // current engine position [degrees]
 /***********************************************************
 **         F U N C T I O N S   &   M A C R O S
 ***********************************************************/ 
-float readECT(){
-    int rawTemp;
-    // temperature sensor is nonlinear, so divided into 2 curves with 3 points
-    // temp is below 40 C
-    #ifdef POLYNOMIAL_REGRESSION
-        if( (rawTemp = readADC(ECT_ADC_CHNL)) ){
-
-        }
-    #else 
-        if( (rawTemp = readADC(ECT_ADC_CHNL)) > 499 )
-            //      [ADC]  * [V/ADC]           * [C/V]   + ( [83.14 C] + [273 C -> K])
-            return rawTemp * VOLTS_PER_ADC_BIT * -26.79f + 356.14f;
-        // temp is above 40 C
-        else
-            //      [ADC]  * [V/ADC]           * [C/V]   + ( [136.63 C] + [273 C -> K])
-            return rawTemp * VOLTS_PER_ADC_BIT * -60.02f + 409.63f;
-        
-    #endif
-
+float readTemp(struct thermistor therm, int adc_channel){
+    return thermistorTemp(therm, readADC(adc_channel)*VOLTS_PER_ADC_BIT) + CELSIUS_TO_KELVIN;
 }
 
-float readIAT(){
-    int rawTemp;
-    // temperature sensor is nonlinear, so divided into 2 linear curves w/ 3 data points
-    // temp is below 40 C
-    /*
-    if( (rawTemp = analogRead(IAT_IN)) > 499 )
-        //      [ADC]  * [V/ADC]           * [C/V]   + ( [83.14 C] + [273 C -> K])
-        return rawTemp * VOLTS_PER_ADC_BIT * -26.79f + 356.14f;
-    // temp is above 40 C
-    else
-        //      [ADC]  * [V/ADC]           * [C/V]   + ( [136.63 C] + [273 C -> K])
-        return rawTemp * VOLTS_PER_ADC_BIT * -60.02f + 409.63f;
-    */
-    //if( rawTemp = readADC(IAT_ADC_CHNL) <
-}
+//       [kPa]   =           [ADC]          * [V/ADC]           * [kPa/V] + [kPa]
+#define readMAP()  (  readADC(MAP_ADC_CHNL) * VOLTS_PER_ADC_BIT * 28.58   + 10.57  )
 
-//       [kPa]   =              [ADC]         * [V/ADC]           * [kPa/V] + [kPa]
-#define readMAP() ( (float)analogRead(MAP_IN) * VOLTS_PER_ADC_BIT * 28.58   + 10.57 )
+#define readTPS()  (  readADC(TPS_ADC_CHNL) / MAX_ADC_VAL  )
 
-//        [%]    =              [ADC]         / [max ADC]
-#define readTPS() ( (float)analogRead(TPS_IN) / MAX_ADC_VAL )
+#define readO2()  (  readADC(O2_ADC_CHNL)  )               //TODO: calibration
 
-#define readO2() ( (float)analogRead(O2_IN) )               //TODO: calibration
+#define calcSpeed(CURR_TIME, PREV_TIME, CURR_ANG_SPEED)  (  0.7*(360.0f / (CURR_TIME - PREV_TIME)) + 0.3*(CURR_ANG_SPEED)  )   
 
-#define calcSpeed(CURR_TIME, PREV_TIME, CURR_ANG_SPEED) ( 0.7*(360.0f / (CURR_TIME - PREV_TIME)) + 0.3*(CURR_ANG_SPEED) )   //TODO: weighting??
-
-//         [rev/min]                  =    [degrees/us]   * [ (1 rev/360 deg)*(60E6 us/1 min)]
-#define convertToRPM(ANGULAR_SPEED_US) ( ANGULAR_SPEED_US * 166667.0f )
+//         [rev/min]                   =    [degrees/us]   * [ (1 rev/360 deg)*(60E6 us/1 min)]
+#define convertToRPM(ANGULAR_SPEED_US)  (  ANGULAR_SPEED_US * 166667.0f  )
 
 //         [deg/us]        =  [rev/min] * [(360 deg/1 rev)*(1 min/60E6 us)]
-#define convertFromRPM(RPM) ( RPM       * 6E-6f )
+#define convertFromRPM(RPM)  (  RPM       * 6E-6f  )
 
 float getCurrAngle(float angular_speed, unsigned int calib_time){
     //[degrees] = [degrees/us]  * (  [us]   -     [us]  ) +  [degrees]
@@ -267,10 +244,10 @@ void loop(void){
 
     SERIAL_PORT.println("MAP(raw):  ECT(raw):  IAT(raw):  TPS(raw):  O2(raw):  Test:");
     SERIAL_PORT.println(serialBuffer);
-    /*
+
     MAPval = readMAP();
-    IATval = readIAT();
-    ECTval = readECT();
+    IATval = readTemp(IAT, IAT_ADC_CHNL);
+    ECTval = readTemp(ECT, ECT_ADC_CHNL);
     TPSval = readTPS();
     killswitch = digitalRead(KILLSWITCH_IN);
     int tachRaw = digitalRead(TACH_IN);
@@ -281,7 +258,7 @@ void loop(void){
     SERIAL_PORT.println("MAP(kPa):    ECT(C):       IAT(C):       TPS(%):   KillSW:  Tach:");
     SERIAL_PORT.println(serialBuffer);
     SERIAL_PORT.println("\n");
-    */
+    
     delay(1000);
     
 

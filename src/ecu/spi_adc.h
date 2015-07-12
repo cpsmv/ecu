@@ -35,8 +35,8 @@
 #ifndef SPI_ADC_H
 #define SPI_ADC_H
 
-#define CHIP_SELECT_PIN 4
-#define SPI_CLK_DIV 42
+#define CHIP_SELECT_PIN 4   // pin number on Arduino Due where CS net is attached
+#define SPI_CLK_DIV 42      // clock division value for the Arduion Due SPI periphial
 
 // set up SPI communication to the MCP3304 DAQ
 void initSPI(void);

@@ -14,7 +14,6 @@
  *
  *  TODO LIST:
  *  get fuel maps from Eco Trons
- *  change to new struct names (2d vs 3d)
  */
 
 #include "table.h"

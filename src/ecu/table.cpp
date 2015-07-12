@@ -43,7 +43,7 @@ void set2DData(table2D_t *table, int x, int y, float value) {
 }
 
 /*    This is the main function used to access table data. 
-		Assume all x,y,z values have already been end-condition checked */
+      Assume all x,y,z values have already been end-condition checked */
 float table2DLookup(table2D_t *table, float x, float y) {
    //Find the indices for each axis between which our desired values fall.
    int xIndex = findIndex(table->xVals, x);
@@ -80,7 +80,7 @@ void set3DData(table3D_t *table, int x, int y, int z, float value) {
 }
 
 /*    This is the main function used to access table data. 
-		Assume all x,y,z values have already been end-condition checked */
+      Assume all x,y,z values have already been end-condition checked */
 float table3DLookup(table3D_t *table, float x, float y, float z) {
    //Find the indices for each axis between which our desired values fall.
    int xIndex = findIndex(table->xVals, x);
