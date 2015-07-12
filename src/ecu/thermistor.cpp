@@ -42,11 +42,11 @@
 #include "thermistor.h"
 
 // calculates the given thermistor's temperature from a pullup resistor network
-float thermistorTemp(struct thermistor therm, int rawSensorVoltage){
+float thermistorTemp(struct thermistor therm, float sensorVoltage){
 
     // find the thermistor's resistance from electrical conditions
     //           [kOhms]      =       [Volts]     *          [kOhms]           /           [Volts]         -       [Volts]
-    float currThermResistance = (rawSensorVoltage * therm.pullupResistor) / (therm.supplyVoltage - rawSensorVoltage);
+    float currThermResistance = (sensorVoltage * therm.pullupResistor) / (therm.supplyVoltage - sensorVoltage);
 
     // find the temperature from linear-regression values of a thermistor Resistance/Temperature plot
     //       [C]   =       [C/jOhms]     *        [kOhms]      +          [C]

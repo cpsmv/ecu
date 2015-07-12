@@ -53,6 +53,6 @@ struct thermistor {
 };
 
 // calculates the given thermistor's temperature from a pullup resistor network
-float thermistorTemp(struct thermistor therm, int rawSensorVoltage);
+float thermistorTemp(struct thermistor therm, float sensorVoltage);
 
 #endif

@@ -46,7 +46,7 @@
 #define IAT_IN          A7
 #define O2_IN           A1
 #define TPS_IN          A11
-#define TACH_IN         6
+#define TACH_IN         5
 #define SPARK_OUT       7
 #define FUEL_OUT        8
 #define DAQ_CS          4
@@ -66,10 +66,6 @@
 #define IAT_ADC_CHNL 2
 #define ECT_ADC_CHNL 3
 #define TPS_ADC_CHNL 1
-
-// Temperature Sensor Settings
-#define POLYNOMIAL_REGRESSION
-//#define LINEAR_REGRESSION
 
 // Scientific Constants
 #define AIR_FUEL_RATIO 14.7f            // stoichiometric AFR for gasoline [kg/kg] 
@@ -96,6 +92,10 @@
 #define LOWER_REV_LIMIT 5800            // this is the hysteresis for the rev limit. The engine must fall below this speed to resume normal operation [RPM]
 #define CRANK_VOL_EFF   0.30f           // hardcoded value for enrichment cranking enrichment algorithm [%]
 #define CRANK_SPARK_ADV 10              // hardcoded cranking spark advance angle [degrees]
+
+// TPS Sensor
+#define TPS_RAW_MIN 301.0f
+#define TPS_RAW_MAX 3278.0f
 
 /***********************************************************
 **             G L O B A L   V A R I A B L E S
@@ -132,8 +132,8 @@ volatile float TPSval;   // Throttle Position Sensor Reading [%]
 volatile float O2Val;    // Oxygen Sensor Reading, w/ calibration curve [AFR]
 
 // Thermistors
-struct thermistor ECT = {-59.45, 101.51, 40, 100, 5.0, 1.2};
-struct thermistor IAT = {-59.45, 101.11, 40, 100, 5.0, 1.2};
+struct thermistor ECT = {-45.08, 95.22, 30, 100, 5.0, 1.2};
+struct thermistor IAT = {-45.08, 88.83, 30, 100, 5.0, 1.2};
 
 // Real Time Stuff
 volatile float currAngularSpeed;             // current speed [degrees per microsecond]
@@ -158,10 +158,33 @@ float readTemp(struct thermistor therm, int adc_channel){
     return thermistorTemp(therm, readADC(adc_channel)*VOLTS_PER_ADC_BIT) + CELSIUS_TO_KELVIN;
 }
 
-//       [kPa]   =           [ADC]          * [V/ADC]           * [kPa/V] + [kPa]
-#define readMAP()  (  readADC(MAP_ADC_CHNL) * VOLTS_PER_ADC_BIT * 28.58   + 10.57  )
+//     [kPa]   =           [ADC]          * [V/ADC]           * [kPa/V] + [kPa]
+float readMAP(void){
+    float MAPvoltage = readADC(MAP_ADC_CHNL)*VOLTS_PER_ADC_BIT;
 
-#define readTPS()  (  readADC(TPS_ADC_CHNL) / MAX_ADC_VAL  )
+    if( MAPvoltage < 0.5f )
+        return 20.0f;
+    else if( MAPvoltage > 4.9f )
+        return 103.0f;
+    else
+        return MAPvoltage * 18.86 + 10.57;
+}
+
+/* From experiment testing,
+    Low TPS rawVal: 301
+    High TPS rawVal: 3261
+*/
+
+float readTPS(void){
+    int rawTPS = readADC(TPS_ADC_CHNL);
+
+    if( rawTPS < TPS_RAW_MIN )
+        return 0.0;
+    else if( rawTPS > TPS_RAW_MAX )
+        return 1.0;
+    else
+        return ((float)rawTPS - TPS_RAW_MIN) / (TPS_RAW_MAX - TPS_RAW_MIN);
+}
 
 #define readO2()  (  readADC(O2_ADC_CHNL)  )               //TODO: calibration
 
@@ -236,13 +259,13 @@ void loop(void){
     int IATraw = readADC(IAT_ADC_CHNL);
     int ECTraw = readADC(ECT_ADC_CHNL);
     int TPSraw = readADC(TPS_ADC_CHNL);
-    int O2raw  = readADC(O2_ADC_CHNL);
-    int channelTest = readADC(7);
+    //int O2raw  = readADC(O2_ADC_CHNL);
+    //int channelTest = readADC(7);
 
-    sprintf(serialBuffer, "%d        %d       %d        %d         %d         %d", 
-                           MAPraw, ECTraw, IATraw, TPSraw, O2raw, channelTest);
+    sprintf(serialBuffer, "%d        %d       %d        %d", 
+        MAPraw, ECTraw, IATraw, TPSraw);//, O2raw, channelTest);
 
-    SERIAL_PORT.println("MAP(raw):  ECT(raw):  IAT(raw):  TPS(raw):  O2(raw):  Test:");
+    SERIAL_PORT.println("MAP(raw):  ECT(raw):  IAT(raw):  TPS(raw):");  //O2(raw):  Test:");
     SERIAL_PORT.println(serialBuffer);
 
     MAPval = readMAP();
@@ -253,13 +276,13 @@ void loop(void){
     int tachRaw = digitalRead(TACH_IN);
 
     sprintf(serialBuffer, "%2f    %2f    %2f    %2f    %d        %d", 
-                           MAPval,   (ECTval-273),   (IATval-273), TPSval, killswitch, tachRaw);
+        MAPval,(ECTval-CELSIUS_TO_KELVIN), (IATval-CELSIUS_TO_KELVIN), TPSval, killswitch, tachRaw);
 
     SERIAL_PORT.println("MAP(kPa):    ECT(C):       IAT(C):       TPS(%):   KillSW:  Tach:");
     SERIAL_PORT.println(serialBuffer);
     SERIAL_PORT.println("\n");
     
-    delay(1000);
+    delay(2000);
     
 
     if( SERIAL_PORT.available() ){

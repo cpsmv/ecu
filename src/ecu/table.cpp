@@ -25,7 +25,7 @@
    between which table axis values our desired input values fall. */
 static int findIndex(const float *vals, float in) {
    int i;
-   for (i = 0; in >= vals[i]; i++);
+   for (i = 1; in >= vals[i]; i++);
    return i - 1;
 }
 
