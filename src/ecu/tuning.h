@@ -4,8 +4,7 @@
  *  Edited by: Alex Pink & Dorian Capps
  *
  *  Description:
- *  These are the table lookup functions (and associated helper functions) for the engine 
- *  fuel maps. 
+ *  Fuel maps for the Honda GX35. Taken from Eco Trons tuning software.
  *
  *  Note to the programmer:
  *  Please use Arduino IDE to compile / upload sketches! To use the built-in

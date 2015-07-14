@@ -121,7 +121,7 @@ volatile bool fuelCycle;
 bool revLimit;
 
 // Serial 
-static char serialBuffer[100];
+static char serialOutBuffer[100];
 volatile int serialPrintCount;
 
 // Sensor Readings
@@ -216,6 +216,9 @@ void setup(void){
     pinMode(SPARK_OUT, OUTPUT);
     pinMode(FUEL_OUT, OUTPUT);
 
+    digitalWrite(SPARK_OUT, LOW);
+    digitalWrite(FUEL_OUT, LOW);
+
     // Initialize Variables
     currAngularSpeed = 0;
     calibAngleTime = 0;             
@@ -248,25 +251,22 @@ void setup(void){
 void loop(void){
 
 #ifdef DIAGNOSTIC_MODE
+
+    char serialChar;
+    static bool commandLock = 0;
     /*
-    int channelTest = readADC(7);
-    SERIAL_PORT.println(channelTest);
-
-    delay(1000);
-    */
-
     int MAPraw = readADC(MAP_ADC_CHNL);
     int IATraw = readADC(IAT_ADC_CHNL);
     int ECTraw = readADC(ECT_ADC_CHNL);
     int TPSraw = readADC(TPS_ADC_CHNL);
-    //int O2raw  = readADC(O2_ADC_CHNL);
-    //int channelTest = readADC(7);
+    int O2raw  = readADC(O2_ADC_CHNL);
+    int channelTest = readADC(7);
 
-    sprintf(serialBuffer, "%d        %d       %d        %d", 
-        MAPraw, ECTraw, IATraw, TPSraw);//, O2raw, channelTest);
+    sprintf(serialOutBuffer, "%d        %d       %d        %d        %d        %d", 
+        MAPraw, ECTraw, IATraw, TPSraw, O2raw, channelTest);
 
-    SERIAL_PORT.println("MAP(raw):  ECT(raw):  IAT(raw):  TPS(raw):");  //O2(raw):  Test:");
-    SERIAL_PORT.println(serialBuffer);
+    SERIAL_PORT.println("MAP(raw):  ECT(raw):  IAT(raw):  TPS(raw):  O2(raw):  Test:");
+    SERIAL_PORT.println(serialOutBuffer);
 
     MAPval = readMAP();
     IATval = readTemp(IAT, IAT_ADC_CHNL);
@@ -275,30 +275,49 @@ void loop(void){
     killswitch = digitalRead(KILLSWITCH_IN);
     int tachRaw = digitalRead(TACH_IN);
 
-    sprintf(serialBuffer, "%2f    %2f    %2f    %2f    %d        %d", 
+    sprintf(serialOutBuffer, "%2f    %2f    %2f    %2f    %d        %d", 
         MAPval,(ECTval-CELSIUS_TO_KELVIN), (IATval-CELSIUS_TO_KELVIN), TPSval, killswitch, tachRaw);
 
     SERIAL_PORT.println("MAP(kPa):    ECT(C):       IAT(C):       TPS(%):   KillSW:  Tach:");
-    SERIAL_PORT.println(serialBuffer);
+    SERIAL_PORT.println(serialOutBuffer);
     SERIAL_PORT.println("\n");
-    
-    delay(2000);
-    
+    */
 
     if( SERIAL_PORT.available() ){
 
+        serialChar = SERIAL_PORT.read();
+
+        if(serialChar == 'l'){
+            commandLock = true;
+            SERIAL_PORT.println("Unlocked.");
+        }
+        else if(serialChar == 's' && commandLock){
+            SERIAL_PORT.println("Performing spark ignition event test.");
+            SPARK_CHARGE_TIMER.start(2000000);
+            commandLock = false;
+        }
+        else if(serialChar == 'f' && commandLock){
+            SERIAL_PORT.println("Performing fuel ignition pulse test.");
+            FUEL_START_TIMER.start(2000000);
+            fuelDuration = 10000;
+            commandLock = false;
+        }
     }
+
+    delay(1000);
+
 #else
+
     switch(currState){
 
-        // Constantly poll the all sensors. The "default" state (all state flows eventually lead back here)
+        // Constantly poll the all sensors. The "default" state (all state flows eventually lead back here).
         case READ_SENSORS:
 
             currState = READ_SENSORS;
 
             MAPval = readMAP();
-            IATval = readIAT();
-            ECTval = readECT();
+            IATval = readTemp(IAT, IAT_ADC_CHNL);
+            //ECTval = readECT();
             TPSval = readTPS();
             //O2Val  = readO2();
 
@@ -454,17 +473,16 @@ void loop(void){
 
             currState = READ_SENSORS;
         
-            sprintf(serialBuffer, "%5f    %3f         %3f      %4f           %5d", 
+            sprintf(serialOutBuffer, "%5f    %3f         %3f      %4f           %5d", 
                 convertToRPM(currAngularSpeed), MAPval, volEff, sparkDischargeAngle, fuelDuration);
 
             SERIAL_PORT.println("RPM:   MAP(kPa):   VE(%):   SPARK(deg):   FUEL PULSE(us):");
-            SERIAL_PORT.println(serialBuffer);
+            SERIAL_PORT.println(serialOutBuffer);
 
         break;
     }
 
 #endif
-
 }
 
 
@@ -496,12 +514,21 @@ void chargeSpark_ISR(void){
     digitalWrite(SPARK_OUT, HIGH);
     // set discharge timer for dwell time
     SPARK_DISCHARGE_TIMER.start(DWELL_TIME);
+
+    #ifdef DIAGNOSTIC_MODE
+        SERIAL_PORT.println("Charging spark.");
+    #endif
+
 }
 
 void dischargeSpark_ISR(void){
     // discharge coil
     digitalWrite(SPARK_OUT, LOW);
     SPARK_DISCHARGE_TIMER.stop();
+
+    #ifdef DIAGNOSTIC_MODE
+        SERIAL_PORT.println("Discharging spark.");
+    #endif
 }
 
 void startFuel_ISR(void){
@@ -510,10 +537,18 @@ void startFuel_ISR(void){
     digitalWrite(FUEL_OUT, HIGH);
     // set discharge timer for dwell time
     FUEL_STOP_TIMER.start(fuelDuration);
+
+    #ifdef DIAGNOSTIC_MODE
+        SERIAL_PORT.println("Starting fuel pulse.");
+    #endif
 }
 
 void stopFuel_ISR(void){
     // stop injecting fuel
     digitalWrite(FUEL_OUT, LOW);
     FUEL_STOP_TIMER.stop();
+
+    #ifdef DIAGNOSTIC_MODE
+        SERIAL_PORT.println("Ending fuel pulse.");
+    #endif
 }
