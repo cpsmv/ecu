@@ -27,13 +27,14 @@
 #include <Arduino.h>
 #include <DueTimer.h>
 #include <stdio.h>
+#include "ecu.h"
 #include "table.h"
 #include "tuning.h"
 #include "spi_adc.h"
 #include "thermistor.h"
 
 /***********************************************************
-**                      D E F I N E S
+*                      D E F I N E S
 ***********************************************************/
 // Mode Definitions
 #define DIAGNOSTIC_MODE
@@ -67,38 +68,9 @@
 #define ECT_ADC_CHNL 3
 #define TPS_ADC_CHNL 1
 
-// Scientific Constants
-#define AIR_FUEL_RATIO 14.7f            // stoichiometric AFR for gasoline [kg/kg] 
-#define MOLAR_MASS_AIR 28.97f           // molar mass of dry air [g/mol]
-#define R_CONSTANT 8.314f               // ideal gas constant [J/(mol*K)]
-#define TDC 360                         // Top Dead Center is 360 degrees [degrees]
-#define CELSIUS_TO_KELVIN 273.0f
-
-// Electrical Constants
-#define VOLTS_PER_ADC_BIT 1.221E-3//3.23E-3       // for converting an ADC read to voltage 
-#define MAX_ADC_VAL 4095.0f
-
-// Engine Parameters
-#define DWELL_TIME 3000                 // time required to inductively charge the spark coil [us]
-#define CALIB_ANGLE 30                  // tach sensor position from Top Dead Center, in direction of crankshaft rotation [degrees]
-#define FUEL_END_ANGLE 120              // when to stop fueling; set for during the intake stroke [degrees]
-#define ENGINE_DISPLACEMENT 35.8E-6     // GX35 displacement is 35.8cc, converted to m^3 [1cc * 1E-6 = m^3]
-#define MASS_FLOW_RATE 0.0006f          // fueling rate of the injector [kg/s]
-
-// Cranking / Engagement Parameters
-#define ENGAGE_SPEED    100             // engine's rotational speed must be above this speed to fuel or spark [RPM]
-#define CRANKING_SPEED  500             // below this rotational speed, the engine runs a cranking mode fuel enrichment algorithm [RPM]
-#define UPPER_REV_LIMIT 6000            // above this rotational speed, the engine enacts a rev limit algorithm [RPM]
-#define LOWER_REV_LIMIT 5800            // this is the hysteresis for the rev limit. The engine must fall below this speed to resume normal operation [RPM]
-#define CRANK_VOL_EFF   0.30f           // hardcoded value for enrichment cranking enrichment algorithm [%]
-#define CRANK_SPARK_ADV 10              // hardcoded cranking spark advance angle [degrees]
-
-// TPS Sensor
-#define TPS_RAW_MIN 301.0f
-#define TPS_RAW_MAX 3278.0f
 
 /***********************************************************
-**             G L O B A L   V A R I A B L E S
+*             G L O B A L   V A R I A B L E S
 ***********************************************************/ 
 // State Machine
 typedef enum {
@@ -151,8 +123,9 @@ volatile float sparkDischargeAngle;          // when to discharge the coil, char
 volatile float fuelStartAngle;               // when to start the injection pulse [degrees]
 float currEngineAngle;              // current engine position [degrees]
 
+
 /***********************************************************
-**         F U N C T I O N S   &   M A C R O S
+*         F U N C T I O N S   &   M A C R O S
 ***********************************************************/ 
 float readTemp(struct thermistor therm, int adc_channel){
     return thermistorTemp(therm, readADC(adc_channel)*VOLTS_PER_ADC_BIT) + CELSIUS_TO_KELVIN;
@@ -160,7 +133,7 @@ float readTemp(struct thermistor therm, int adc_channel){
 
 //     [kPa]   =           [ADC]          * [V/ADC]           * [kPa/V] + [kPa]
 float readMAP(void){
-    float MAPvoltage = readADC(MAP_ADC_CHNL)*VOLTS_PER_ADC_BIT;
+    float MAPvoltage = readADC(MAP_ADC_CHNL) * VOLTS_PER_ADC_BIT;
 
     if( MAPvoltage < 0.5f )
         return 20.0f;
@@ -170,7 +143,7 @@ float readMAP(void){
         return MAPvoltage * 18.86 + 10.57;
 }
 
-/* From experiment testing,
+/* From experimentation,
     Low TPS rawVal: 301
     High TPS rawVal: 3261
 */
@@ -203,8 +176,40 @@ float getCurrAngle(float angular_speed, unsigned int calib_time){
     return angle >= 360 ? angle - 360 : angle;
 }
 
+float injectorPulse(float airVol, float currMAP){
+    // calculate moles of air inducted into the cylinder
+    // [n]    =   [m^3] * ([kPa]   * [Pa/1kPa]) / ([kg/(mol*K)] * [K] )
+    airMolar  = airVol  * (currMAP * 1E-3)      / (R_CONSTANT   * IATval);
+
+    // calculate moles of fuel to be injected 
+    // [g fuel] =  [n air] *  [g/n air]     / [g air / g fuel]
+    fuelMass    = airMolar * MOLAR_MASS_AIR / AIR_FUEL_RATIO;
+
+    // calculate fuel injection duration in microseconds
+    // [us] =  [g]  * [kg/1E3 g] * [1E6 us/s] / [kg/s]
+    return fuelMass * 1E3 / MASS_FLOW_RATE;     
+}
+
+float timeToStartFueling(float fuelDuration, float angularSpeed, float engineAngle){
+    // calculate the angle at which to begin fuel injecting
+    // [degrees]   =   [degrees]    - (    [us]     *   [degrees/us]  )
+    fuelStartAngle = FUEL_END_ANGLE - (fuelDuration * angularSpeed); 
+
+    // determine when [in us] to start the fuel injection pulse and set a timer appropriately
+    //                      (  [degrees]    -    [degrees]   ) /   [degrees/us]   
+    return ( (fuelStartAngle - engineAngle) / angularSpeed );
+}
+float timetoChargeSpark(float sparkDischargeAngle, float currAngularSpeed, float currEngineAngle){
+
+    sparkChargeAngle = sparkDischargeAngle - DWELL_TIME * currAngularSpeed; // calculate angle at which to begin charging the spark
+
+    // determine when [in us] to start charging the coil and set a timer appropriately
+    //        (   [degrees]    -    [degrees]   ) /    [degrees/us]
+    return ( (sparkChargeAngle - currEngineAngle) / currAngularSpeed ); 
+}
+
 /***********************************************************
-**     A R D U I N O    S E T U P    F U N C T I O N
+*      A R D U I N O    S E T U P    F U N C T I O N
 ***********************************************************/ 
 void setup(void){
     // Set 12-bit ADC Readings
@@ -246,43 +251,43 @@ void setup(void){
 }
 
 /***********************************************************
-**      A R D U I N O    L O O P    F U N C T I O N
+*       A R D U I N O    L O O P    F U N C T I O N
 ***********************************************************/ 
 void loop(void){
 
-#ifdef DIAGNOSTIC_MODE
+    #ifdef DIAGNOSTIC_MODE
 
-char serialChar;
-static bool commandLock = 0;
+    char serialChar;
+    static bool commandLock = 0;
 
-int MAPraw = readADC(MAP_ADC_CHNL);
-int IATraw = readADC(IAT_ADC_CHNL);
-int ECTraw = readADC(ECT_ADC_CHNL);
-int TPSraw = readADC(TPS_ADC_CHNL);
-int O2raw  = readADC(O2_ADC_CHNL);
-int channelTest = readADC(7);
+    int MAPraw = readADC(MAP_ADC_CHNL);
+    int IATraw = readADC(IAT_ADC_CHNL);
+    int ECTraw = readADC(ECT_ADC_CHNL);
+    int TPSraw = readADC(TPS_ADC_CHNL);
+    int O2raw  = readADC(O2_ADC_CHNL);
+    int channelTest = readADC(7);
 
-sprintf(serialOutBuffer, "%d        %d       %d        %d        %d        %d", 
+    sprintf(serialOutBuffer, "%d        %d       %d        %d        %d        %d", 
     MAPraw, ECTraw, IATraw, TPSraw, O2raw, channelTest);
 
-SERIAL_PORT.println("MAP(raw):  ECT(raw):  IAT(raw):  TPS(raw):  O2(raw):  Test:");
-SERIAL_PORT.println(serialOutBuffer);
+    SERIAL_PORT.println("MAP(raw):  ECT(raw):  IAT(raw):  TPS(raw):  O2(raw):  Test:");
+    SERIAL_PORT.println(serialOutBuffer);
 
-MAPval = readMAP();
-IATval = readTemp(IAT, IAT_ADC_CHNL);
-ECTval = readTemp(ECT, ECT_ADC_CHNL);
-TPSval = readTPS();
-killswitch = digitalRead(KILLSWITCH_IN);
-int tachRaw = digitalRead(TACH_IN);
+    MAPval = readMAP();
+    IATval = readTemp(IAT, IAT_ADC_CHNL);
+    ECTval = readTemp(ECT, ECT_ADC_CHNL);
+    TPSval = readTPS();
+    killswitch = digitalRead(KILLSWITCH_IN);
+    int tachRaw = digitalRead(TACH_IN);
 
-sprintf(serialOutBuffer, "%2f    %2f    %2f    %2f    %d        %d", 
+    sprintf(serialOutBuffer, "%2f    %2f    %2f    %2f    %d        %d", 
     MAPval,(ECTval-CELSIUS_TO_KELVIN), (IATval-CELSIUS_TO_KELVIN), TPSval, killswitch, tachRaw);
 
-SERIAL_PORT.println("MAP(kPa):    ECT(C):       IAT(C):       TPS(%):   KillSW:  Tach:");
-SERIAL_PORT.println(serialOutBuffer);
-SERIAL_PORT.println("\n");
+    SERIAL_PORT.println("MAP(kPa):    ECT(C):       IAT(C):       TPS(%):   KillSW:  Tach:");
+    SERIAL_PORT.println(serialOutBuffer);
+    SERIAL_PORT.println("\n");
 
-if( SERIAL_PORT.available() ){
+    if( SERIAL_PORT.available() ){
 
     serialChar = SERIAL_PORT.read();
 
@@ -301,193 +306,161 @@ if( SERIAL_PORT.available() ){
         fuelDuration = 10000;
         commandLock = false;
     }
-}
+    }
 
-delay(1000);
+    delay(1000);
 
-#else
+    #else
 
-switch(currState){
+    switch(currState){
 
-    // Constantly poll the all sensors. The "default" state (all state flows eventually lead back here).
-    case READ_SENSORS:
+        // Constantly poll the all sensors. The "default" state (all state flows eventually lead back here).
+        case READ_SENSORS:
 
-        currState = READ_SENSORS;
+            currState = READ_SENSORS;
 
-        MAPval = readMAP();
-        IATval = readTemp(IAT, IAT_ADC_CHNL);
-        //ECTval = readECT();
-        TPSval = readTPS();
-        //O2Val  = readO2();
+            MAPval = readMAP();
+            IATval = readTemp(IAT, IAT_ADC_CHNL);
+            //ECTval = readECT();
+            TPSval = readTPS();
+            //O2Val  = readO2();
 
-    break;
+        break;
 
-    // when the TACH ISR determines it has reached its calibration angle, this state is selected. This state directs the
-    // flow of the state machine.
-    case CALIBRATION:
+        // when the TACH ISR determines it has reached its calibration angle, this state is selected. This state directs the
+        // flow of the state machine.
+        case CALIBRATION:
 
-        switch(killswitch){
-            case true:
-                currRPM = convertToRPM(currAngularSpeed);
+            switch(killswitch){
+                case true:
+                    currRPM = convertToRPM(currAngularSpeed);
 
-                if( revLimit ){
-                    if( currRPM < LOWER_REV_LIMIT){
-                        revLimit = false;
-                        currState = RUNNING;
+                    if( revLimit ){
+                        if( currRPM < LOWER_REV_LIMIT){
+                            revLimit = false;
+                            currState = RUNNING;
+                        }
+                        else
+                            currState = READ_SENSORS;
                     }
-                    else
-                        currState = READ_SENSORS;
-                }
-                else{
-                    if( currRPM <= ENGAGE_SPEED )
-                        currState = READ_SENSORS;
-                    else if( currRPM > ENGAGE_SPEED && currRPM <= CRANKING_SPEED )
-                        currState = CRANKING_MODE;
-                    else if( currRPM > CRANKING_SPEED && currRPM <= UPPER_REV_LIMIT )
-                        currState = RUNNING;
-                    else
-                        currState = REV_LIMITER;
-                }
-            break;
+                    else{
+                        if( currRPM <= ENGAGE_SPEED )
+                            currState = READ_SENSORS;
+                        else if( currRPM > ENGAGE_SPEED && currRPM <= CRANKING_SPEED )
+                            currState = CRANKING_MODE;
+                        else if( currRPM > CRANKING_SPEED && currRPM <= UPPER_REV_LIMIT )
+                            currState = RUNNING;
+                        else
+                            currState = REV_LIMITER;
+                    }
+                break;
 
-            case false:
-                currState = READ_SENSORS;
-            break;
-        }
+                case false:
+                    currState = READ_SENSORS;
+                break;
+            }
 
-    break;
+        break;
 
-    // CRANKING_MODE uses hardcoded values for Volumetric Efficiency and Spark Advance angle. It is an engine
-    // enrichment algorithm that usually employs a rich AFR ratio.
-    case CRANKING_MODE:
+        // CRANKING_MODE uses hardcoded values for Volumetric Efficiency and Spark Advance angle. It is an engine
+        // enrichment algorithm that usually employs a rich AFR ratio.
+        case CRANKING_MODE:
 
-        currState = (serialPrintCount == 0 ? SERIAL_OUT : READ_SENSORS); 
+            currState = (serialPrintCount == 0 ? SERIAL_OUT : READ_SENSORS); 
 
-        if(fuelCycle){
-            // calculate volume of air inducted into the cylinder, using hardcoded cranking VE
-            // [m^3]  =    [%]           *        [m^3]         
-            airVolume =  CRANK_VOL_EFF * ENGINE_DISPLACEMENT;
+            if(fuelCycle){
+                // calculate volume of air inducted into the cylinder, using hardcoded cranking VE
+                // [m^3]  =    [%]         *        [m^3]         
+                airVolume =  CRANK_VOL_EFF * ENGINE_DISPLACEMENT;
 
-            // calculate moles of air inducted into the cylinder
-            // [n]    =   [m^3]   * ([kPa] * [Pa/1kPa]) / ([kg/(mol*K)] * [K] )
-            airMolar  = airVolume * (MAPval * 1E-3)     / (R_CONSTANT   * IATval);
+                // Calculate fuel injector pulse length
+                fuelDuration = injectorPulse(airVolume, MAPval);
 
-            // calculate moles of fuel to be injected 
-            // [g fuel] =  [n air] *  [g/n air]     / [g air / g fuel]
-            fuelMass    = airMolar * MOLAR_MASS_AIR / AIR_FUEL_RATIO;
+                // update current angular position
+                currEngineAngle = getCurrAngle(currAngularSpeed, calibAngleTime);
 
-            // calculate fuel injection duration in microseconds
-            // [us]      =  [g]     * [kg/1E3 g] * [1E6 us/s] / [kg/s]
-            fuelDuration = fuelMass * 1E3 / MASS_FLOW_RATE;     
-            
-            // calculate the angle at which to begin fuel injecting
-            // [degrees]   =   [degrees]    - (    [us]     *   [degrees/us]  )
-            fuelStartAngle = FUEL_END_ANGLE - (fuelDuration * currAngularSpeed); 
+                // calculate and set the time to start injecting fuel
+                FUEL_START_TIMER.start( timeToStartFueling(fuelDuration, currAngularSpeed, currEngineAngle) );
+            }
 
-            // update current angular position
+            // find out at what angle to begin/end charging the spark
+            sparkDischargeAngle = TDC - CRANK_SPARK_ADV;    // hardcoded cranking spark advance angle
+
+            // update current angular position again, for timer precision
             currEngineAngle = getCurrAngle(currAngularSpeed, calibAngleTime);
 
-            // determine when [in us] to start the fuel injection pulse and set a timer appropriately
-            //                      (  [degrees]    -    [degrees]   ) /   [degrees/us]   
-            FUEL_START_TIMER.start( (fuelStartAngle - currEngineAngle) / currAngularSpeed );
-        }
+            // calculate and set the time to start charging the spark coil
+            SPARK_CHARGE_TIMER.start( timetoChargeSpark(sparkDischargeAngle, currAngularSpeed, currEngineAngle) );
 
-        // find out at what angle to begin/end charging the spark
-        sparkDischargeAngle = TDC - CRANK_SPARK_ADV;                            // hardcoded cranking spark advance angle
-        sparkChargeAngle = sparkDischargeAngle - DWELL_TIME * currAngularSpeed; // calculate angle at which to begin charging the spark
+        break;
 
-        // update current angular position again, for timer precision
-        currEngineAngle = getCurrAngle(currAngularSpeed, calibAngleTime);
+        // This state runs during the normal running operation of the engine. The Volumetric Efficiency and 
+        // Spark Advance are determined using fuel map lookup tables. 
+        case RUNNING:
 
-        // determine when [in us] to start charging the coil and set a timer appropriately
-        //                         (   [degrees]    -    [degrees]   ) /    [degrees/us]
-        SPARK_CHARGE_TIMER.start( (sparkChargeAngle - currEngineAngle) / currAngularSpeed );
+            currState = (serialPrintCount == 0 ? SERIAL_OUT : READ_SENSORS);
 
-    break;
+            if(fuelCycle){
+                // table lookup for volumetric efficiency 
+                volEff = table2DLookup(&VETable, convertToRPM(currAngularSpeed), MAPval);
 
-    // This state runs during the normal running operation of the engine. The Volumetric Efficiency and 
-    // Spark Advance are determined using fuel map lookup tables. 
-    case RUNNING:
-
-        currState = (serialPrintCount == 0 ? SERIAL_OUT : READ_SENSORS);
-
-        if(fuelCycle){
-            // table lookup for volumetric efficiency 
-            volEff = table2DLookup(&VETable, convertToRPM(currAngularSpeed), MAPval);
-
-            // calculate volume of air inducted into the cylinder
-            // [m^3]  =    [%]  *        [m^3]         
-            airVolume =  volEff * ENGINE_DISPLACEMENT;
-
-            // calculate moles of air inducted into the cylinder
-            // [n]    =   [m^3]   * ([kPa] * [Pa/1kPa]) / ([kg/(mol*K)] * [K] )
-            airMolar  = airVolume * (MAPval * 1E-3)     / (R_CONSTANT   * IATval);
-
-            // calculate moles of fuel to be injected 
-            // [g fuel] =  [n air] *  [g/n air]     / [g air / g fuel]
-            fuelMass    = airMolar * MOLAR_MASS_AIR / AIR_FUEL_RATIO;
-
-            // calculate fuel injection duration in microseconds
-            // [us]      =  [g]     * [kg/1E3 g] * [1E6 us/s] / [kg/s]
-            fuelDuration = fuelMass * 1E3 / MASS_FLOW_RATE;     
-            
-            // calculate the angle at which to begin fuel injecting
-            // [degrees]   =   [degrees]    - (    [us]     *   [degrees/us]  )
-            fuelStartAngle = FUEL_END_ANGLE - (fuelDuration * currAngularSpeed); 
-
-            // update current angular position
-            currEngineAngle = getCurrAngle(currAngularSpeed, calibAngleTime);
-
-            // determine when [in us] to start the fuel injection pulse and set a timer appropriately
-            //                      (  [degrees]    -    [degrees]   ) /   [degrees/us]   
-            FUEL_START_TIMER.start( (fuelStartAngle - currEngineAngle) / currAngularSpeed );
-        }
-
-        // find out at what angle to begin/end charging the spark
-        sparkDischargeAngle = TDC - table2DLookup(&SATable, convertToRPM(currAngularSpeed), MAPval);  // calculate spark advance angle
-        sparkChargeAngle = sparkDischargeAngle - DWELL_TIME * currAngularSpeed; // calculate angle at which to begin charging the spark
-
-        // update current angular position again, for timer precision
-        currEngineAngle = getCurrAngle(currAngularSpeed, calibAngleTime);
-
-        // determine when [in us] to start charging the coil and set a timer appropriately
-        //                         (   [degrees]    -    [degrees]   ) /    [degrees/us]
-        SPARK_CHARGE_TIMER.start( (sparkChargeAngle - currEngineAngle) / currAngularSpeed ); 
-
-    break;
-
-    // When the engine's RPM is greater than UPPER_REV_LIMIT, the engine must enact a rev limiter algorithm,
-    // to prevent possible damage to the engine internals / hardware. The engine doesn't fuel or spark.
-    case REV_LIMITER:
-
-        currState = (serialPrintCount == 0 ? SERIAL_OUT : READ_SENSORS);
-
-        SERIAL_PORT.println("ERR: rev limit");
-
-        revLimit = true;
-
-    break;
-
-    case SERIAL_OUT:
-
-        currState = READ_SENSORS;
+                // calculate volume of air inducted into the cylinder
+                // [m^3]  =    [%]  *        [m^3]         
+                airVolume =  volEff * ENGINE_DISPLACEMENT;
     
-        sprintf(serialOutBuffer, "%5f    %3f         %3f      %4f           %5d", 
-            convertToRPM(currAngularSpeed), MAPval, volEff, sparkDischargeAngle, fuelDuration);
+                // Calculate fuel injector pulse length
+                fuelDuration = injectorPulse(airVolume, MAPval); 
 
-        SERIAL_PORT.println("RPM:   MAP(kPa):   VE(%):   SPARK(deg):   FUEL PULSE(us):");
-        SERIAL_PORT.println(serialOutBuffer);
+                // update current angular position
+                currEngineAngle = getCurrAngle(currAngularSpeed, calibAngleTime);
 
-    break;
+                // calculate and set the time to start injecting fuel
+                FUEL_START_TIMER.start( timeToStartFueling(fuelDuration, currAngularSpeed, currEngineAngle) );
+            }
+
+            // find out at what angle to begin charging the spark coil
+            sparkDischargeAngle = TDC - table2DLookup(&SATable, convertToRPM(currAngularSpeed), MAPval);  // calculate spark advance angle
+
+            // update current angular position again, for timer precision
+            currEngineAngle = getCurrAngle(currAngularSpeed, calibAngleTime);
+            
+            // calculate and set the time to start charging the spark coil
+            SPARK_CHARGE_TIMER.start( timetoChargeSpark(sparkDischargeAngle, currAngularSpeed, currEngineAngle) );
+
+        break;
+
+        // When the engine's RPM is greater than UPPER_REV_LIMIT, the engine must enact a rev limiter algorithm,
+        // to prevent possible damage to the engine internals / hardware. The engine doesn't fuel or spark.
+        case REV_LIMITER:
+
+            currState = (serialPrintCount == 0 ? SERIAL_OUT : READ_SENSORS);
+
+            SERIAL_PORT.println("ERR: rev limit");
+
+            revLimit = true;
+
+        break;
+
+        case SERIAL_OUT:
+
+            currState = READ_SENSORS;
+        
+            sprintf(serialOutBuffer, "%5f    %3f         %3f      %4f           %5d", 
+                convertToRPM(currAngularSpeed), MAPval, volEff, sparkDischargeAngle, fuelDuration);
+
+            SERIAL_PORT.println("RPM:   MAP(kPa):   VE(%):   SPARK(deg):   FUEL PULSE(us):");
+            SERIAL_PORT.println(serialOutBuffer);
+
+        break;
+    }
+
+    #endif
 }
 
-#endif
-}
 
-
-//***********************************************************
-//   I N T E R R U P T   S E R V I C E    R O U T I N E S
-//*********************************************************** 
+/***********************************************************
+*   I N T E R R U P T   S E R V I C E    R O U T I N E S
+***********************************************************/
 void tach_ISR(void){
 
     lastCalibAngleTime = calibAngleTime;
