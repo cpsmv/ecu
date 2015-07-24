@@ -16,11 +16,8 @@
  *
  *  TODO LIST:
  *  calibrate Eco Trons injector & MASS_FLOW_RATE
- *  get ADC to work!
  *  O2 sensor working
- *  adjust sensor calibrations
  *  temp sensor linear regression
- *  table lookup end conditions: check end conditions in MapVal!
  *  RPM weighting
  *
  */
@@ -76,16 +73,13 @@
 typedef enum {
     READ_SENSORS,
     CALIBRATION,
-    CRANKING_MODE,
+    CRANKING,
     RUNNING,
     REV_LIMITER,
     SERIAL_OUT
 } state;
 
 volatile state currState;
-
-// Modes and Functionality
-static bool debugModeSelect = 1;
 
 // Booleans
 volatile bool killswitch;
@@ -101,7 +95,7 @@ volatile float MAPval;  // Manifold Absolute Pressure reading, w/ calibration cu
 volatile float ECTval;   // Engine Coolant Temperature reading, w/ calibration curve [K]
 volatile float IATval;   // Intake Air Temperature reading, w/ calibration curve [K]
 volatile float TPSval;   // Throttle Position Sensor Reading [%]
-volatile float O2Val;    // Oxygen Sensor Reading, w/ calibration curve [AFR]
+volatile float O2val;    // Oxygen Sensor Reading, w/ calibration curve [AFR]
 
 // Thermistors
 struct thermistor ECT = {-45.08, 95.22, 30, 100, 5.0, 1.2};
@@ -125,22 +119,29 @@ float currEngineAngle;              // current engine position [degrees]
 
 
 /***********************************************************
-*         F U N C T I O N S   &   M A C R O S
+*                  F U N C T I O N S   
 ***********************************************************/ 
 float readTemp(struct thermistor therm, int adc_channel){
-    return thermistorTemp(therm, readADC(adc_channel)*VOLTS_PER_ADC_BIT) + CELSIUS_TO_KELVIN;
+    // [K] =                                    [C]                        +       [K]                  
+    return   thermistorTemp(therm, readADC(adc_channel)*VOLTS_PER_ADC_BIT) + CELSIUS_TO_KELVIN;
 }
 
-//     [kPa]   =           [ADC]          * [V/ADC]           * [kPa/V] + [kPa]
 float readMAP(void){
+    //     [kPa]     =           [ADC]       * [V/ADC]           
     float MAPvoltage = readADC(MAP_ADC_CHNL) * VOLTS_PER_ADC_BIT;
 
     if( MAPvoltage < 0.5f )
         return 20.0f;
     else if( MAPvoltage > 4.9f )
         return 103.0f;
-    else
-        return MAPvoltage * 18.86 + 10.57;
+    else                  
+        //          [V]   * [kPa/V] + [kPa]
+        return MAPvoltage * 18.86   + 10.57;
+}
+
+float readO2(void){
+    // [kg/kg] = (           [ADC]     *      [V/ADC]     ) * [(kg/kg)/V] + [kg/kg]
+    return       (readADC(O2_ADC_CHNL) * VOLTS_PER_ADC_BIT) * 3.008       + 7.35;
 }
 
 /* From experimentation,
@@ -158,16 +159,6 @@ float readTPS(void){
     else
         return ((float)rawTPS - TPS_RAW_MIN) / (TPS_RAW_MAX - TPS_RAW_MIN);
 }
-
-#define readO2()  (  readADC(O2_ADC_CHNL)  )               //TODO: calibration
-
-#define calcSpeed(CURR_TIME, PREV_TIME, CURR_ANG_SPEED)  (  0.7*(360.0f / (CURR_TIME - PREV_TIME)) + 0.3*(CURR_ANG_SPEED)  )   
-
-//         [rev/min]                   =    [degrees/us]   * [ (1 rev/360 deg)*(60E6 us/1 min)]
-#define convertToRPM(ANGULAR_SPEED_US)  (  ANGULAR_SPEED_US * 166667.0f  )
-
-//         [deg/us]        =  [rev/min] * [(360 deg/1 rev)*(1 min/60E6 us)]
-#define convertFromRPM(RPM)  (  RPM       * 6E-6f  )
 
 float getCurrAngle(float angular_speed, unsigned int calib_time){
     //[degrees] = [degrees/us]  * (  [us]   -     [us]  ) +  [degrees]
@@ -207,6 +198,7 @@ float timetoChargeSpark(float sparkDischargeAngle, float currAngularSpeed, float
     //        (   [degrees]    -    [degrees]   ) /    [degrees/us]
     return ( (sparkChargeAngle - currEngineAngle) / currAngularSpeed ); 
 }
+
 
 /***********************************************************
 *      A R D U I N O    S E T U P    F U N C T I O N
@@ -277,35 +269,36 @@ void loop(void){
     IATval = readTemp(IAT, IAT_ADC_CHNL);
     ECTval = readTemp(ECT, ECT_ADC_CHNL);
     TPSval = readTPS();
+    O2val  = readO2();
     killswitch = digitalRead(KILLSWITCH_IN);
     int tachRaw = digitalRead(TACH_IN);
 
-    sprintf(serialOutBuffer, "%2f    %2f    %2f    %2f    %d        %d", 
+    sprintf(serialOutBuffer, "%2f    %2f    %2f    %2f    %2f        %d        %d", 
     MAPval,(ECTval-CELSIUS_TO_KELVIN), (IATval-CELSIUS_TO_KELVIN), TPSval, killswitch, tachRaw);
 
-    SERIAL_PORT.println("MAP(kPa):    ECT(C):       IAT(C):       TPS(%):   KillSW:  Tach:");
+    SERIAL_PORT.println("MAP(kPa):    ECT(C):       IAT(C):       TPS(%):   O2(kg/kg):  KillSW:  Tach:");
     SERIAL_PORT.println(serialOutBuffer);
     SERIAL_PORT.println("\n");
 
     if( SERIAL_PORT.available() ){
 
-    serialChar = SERIAL_PORT.read();
+        serialChar = SERIAL_PORT.read();
 
-    if(serialChar == 'l'){
-        commandLock = true;
-        SERIAL_PORT.println("Unlocked.");
-    }
-    else if(serialChar == 's' && commandLock){
-        SERIAL_PORT.println("Performing spark ignition event test in 2s.");
-        SPARK_CHARGE_TIMER.start(2000000);
-        commandLock = false;
-    }
-    else if(serialChar == 'f' && commandLock){
-        SERIAL_PORT.println("Performing fuel ignition pulse test in 2s.");
-        FUEL_START_TIMER.start(2000000);
-        fuelDuration = 10000;
-        commandLock = false;
-    }
+        if(serialChar == 'l'){
+            commandLock = true;
+            SERIAL_PORT.println("Unlocked.");
+        }
+        else if(serialChar == 's' && commandLock){
+            SERIAL_PORT.println("Performing spark ignition event test in 2s.");
+            SPARK_CHARGE_TIMER.start(2000000);
+            commandLock = false;
+        }
+        else if(serialChar == 'f' && commandLock){
+            SERIAL_PORT.println("Performing fuel ignition pulse test in 2s.");
+            FUEL_START_TIMER.start(2000000);
+            fuelDuration = 10000;
+            commandLock = false;
+        }
     }
 
     delay(1000);
@@ -323,7 +316,7 @@ void loop(void){
             IATval = readTemp(IAT, IAT_ADC_CHNL);
             //ECTval = readECT();
             TPSval = readTPS();
-            //O2Val  = readO2();
+            O2Val  = readO2();
 
         break;
 
@@ -339,19 +332,22 @@ void loop(void){
                         if( currRPM < LOWER_REV_LIMIT){
                             revLimit = false;
                             currState = RUNNING;
+                            #ifdef DEBUG_MODE
+                            SERIAL_PORT.println("INFO: rev limiter deactivated");
+                            #endif
                         }
                         else
                             currState = READ_SENSORS;
                     }
                     else{
-                        if( currRPM <= ENGAGE_SPEED )
-                            currState = READ_SENSORS;
-                        else if( currRPM > ENGAGE_SPEED && currRPM <= CRANKING_SPEED )
-                            currState = CRANKING_MODE;
-                        else if( currRPM > CRANKING_SPEED && currRPM <= UPPER_REV_LIMIT )
-                            currState = RUNNING;
-                        else
+                        if( currRPM >= UPPER_REV_LIMIT )
                             currState = REV_LIMITER;
+                        else if( currRPM < UPPER_REV_LIMIT && currRPM >= CRANKING_SPEED )
+                            currState = RUNNING;
+                        else if( currRPM < CRANKING_SPEED && currRPM >= ENGAGE_SPEED )
+                            currState = CRANKING;
+                        else
+                            currState = READ_SENSORS;
                     }
                 break;
 
@@ -360,11 +356,26 @@ void loop(void){
                 break;
             }
 
+        #ifdef DEBUG_MODE
+        switch(currState){
+            case READ_SENSORS:
+                SERIAL_PORT.println("INFO: state machine to READ_SENSORS");
+            case CRANKING:
+                SERIAL_PORT.println("INFO: state machine to CRANKING");
+            case RUNNING:
+                SERIAL_PORT.println("INFO: state machine to RUNNING");
+            case REV_LIMITER:
+                SERIAL_PORT.println("INFO: state machine to REV_LIMITER");
+            default:
+                SERIAL_PORT.println("INFO: state machine to READ_SENSORS");
+        }
+        #endif
+
         break;
 
-        // CRANKING_MODE uses hardcoded values for Volumetric Efficiency and Spark Advance angle. It is an engine
+        // CRANKING uses hardcoded values for Volumetric Efficiency and Spark Advance angle. It is an engine
         // enrichment algorithm that usually employs a rich AFR ratio.
-        case CRANKING_MODE:
+        case CRANKING:
 
             currState = (serialPrintCount == 0 ? SERIAL_OUT : READ_SENSORS); 
 
@@ -435,7 +446,9 @@ void loop(void){
 
             currState = (serialPrintCount == 0 ? SERIAL_OUT : READ_SENSORS);
 
-            SERIAL_PORT.println("ERR: rev limit");
+            #ifdef DEBUG_MODE
+            SERIAL_PORT.println("INFO: rev limiter activated");
+            #endif
 
             revLimit = true;
 

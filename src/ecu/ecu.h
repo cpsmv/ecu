@@ -14,11 +14,8 @@
  *
  *  TODO LIST:
  *  calibrate Eco Trons injector & MASS_FLOW_RATE
- *  get ADC to work!
  *  O2 sensor working
- *  adjust sensor calibrations
  *  temp sensor linear regression
- *  table lookup end conditions: check end conditions in MapVal!
  *  RPM weighting
  *
  */
@@ -59,9 +56,19 @@
 
 /***********************************************************
 *         F U N C T I O N S   &   M A C R O S
-***********************************************************/
+***********************************************************/             
+
+#define calcSpeed(CURR_TIME, PREV_TIME, CURR_ANG_SPEED)  (  0.7*(360.0f / (CURR_TIME - PREV_TIME)) + 0.3*(CURR_ANG_SPEED)  )   
+
+//         [rev/min]                   =    [degrees/us]   * [ (1 rev/360 deg)*(60E6 us/1 min)]
+#define convertToRPM(ANGULAR_SPEED_US)  (  ANGULAR_SPEED_US * 166667.0f  )
+
+//         [deg/us]        =  [rev/min] * [(360 deg/1 rev)*(1 min/60E6 us)]
+#define convertFromRPM(RPM)  (  RPM       * 6E-6f  )
+
 float readTemp(struct thermistor therm, int adc_channel);
 float readMAP(void);
+float readO2(void);
 float readTPS(void);
 float getCurrAngle(float angular_speed, unsigned int calib_time);
 float injectorPulse(float airVol, float currMAP);
