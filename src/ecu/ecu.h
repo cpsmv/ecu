@@ -20,6 +20,14 @@
  *
  */
 
+#ifndef ECU_H
+#define ECU_H
+
+#include "table.h"
+#include "tuning.h"
+#include "spi_adc.h"
+#include "thermistor.h"
+
 /***********************************************************
 *                      D E F I N E S
 ***********************************************************/
@@ -35,11 +43,11 @@
 #define MAX_ADC_VAL 4095.0f
 
 // Engine Parameters
-#define DWELL_TIME 3000                 // time required to inductively charge the spark coil [us]
+#define DWELL_TIME 4000                 // time required to inductively charge the spark coil [us]
 #define CALIB_ANGLE 30                  // tach sensor position from Top Dead Center, in direction of crankshaft rotation [degrees]
 #define FUEL_END_ANGLE 120              // when to stop fueling; set for during the intake stroke [degrees]
 #define ENGINE_DISPLACEMENT 35.8E-6     // GX35 displacement is 35.8cc, converted to m^3 [1cc * 1E-6 = m^3]
-#define MASS_FLOW_RATE 0.0006f          // fueling rate of the injector [kg/s]
+#define MASS_FLOW_RATE 0.6333f          // fueling rate of the injector [g/s]
 
 // Cranking / Engagement Parameters
 #define ENGAGE_SPEED    100             // engine's rotational speed must be above this speed to fuel or spark [RPM]
@@ -58,19 +66,22 @@
 *         F U N C T I O N S   &   M A C R O S
 ***********************************************************/             
 
-#define calcSpeed(CURR_TIME, PREV_TIME, CURR_ANG_SPEED)  (  0.7*(360.0f / (CURR_TIME - PREV_TIME)) + 0.3*(CURR_ANG_SPEED)  )   
-
+//#define calcSpeed(CURR_TIME, PREV_TIME, CURR_ANG_SPEED)  (  0.7*(360.0f / (CURR_TIME - PREV_TIME)) + 0.3*(CURR_ANG_SPEED)  )   
+#define calcSpeed(CURR_TIME, PREV_TIME) ( 360.0f / (CURR_TIME - PREV_TIME) )
 //         [rev/min]                   =    [degrees/us]   * [ (1 rev/360 deg)*(60E6 us/1 min)]
-#define convertToRPM(ANGULAR_SPEED_US)  (  ANGULAR_SPEED_US * 166667.0f  )
-
+#define convertToRPM(ANGULAR_SPEED_US)  (  ANGULAR_SPEED_US * 166666.7f  )
 //         [deg/us]        =  [rev/min] * [(360 deg/1 rev)*(1 min/60E6 us)]
 #define convertFromRPM(RPM)  (  RPM       * 6E-6f  )
+
+float getCurrAngle(float angular_speed, unsigned int calib_time);
 
 float readTemp(struct thermistor therm, int adc_channel);
 float readMAP(void);
 float readO2(void);
 float readTPS(void);
-float getCurrAngle(float angular_speed, unsigned int calib_time);
-float injectorPulse(float airVol, float currMAP);
+
+float injectorPulse(float airVol, float currMAP, float IAT);
 float timeToStartFueling(float fuelDuration, float angularSpeed, float engineAngle);
 float timetoChargeSpark(float sparkDischargeAngle, float currAngularSpeed, float currEngineAngle);
+
+#endif

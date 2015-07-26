@@ -25,14 +25,10 @@
 #include <DueTimer.h>
 #include <stdio.h>
 #include "ecu.h"
-#include "table.h"
-#include "tuning.h"
-#include "spi_adc.h"
-#include "thermistor.h"
 
-/***********************************************************
-*                      D E F I N E S
-***********************************************************/
+/******************************************************************************************
+*                                    D E F I N E S
+******************************************************************************************/
 // Mode Definitions
 #define DIAGNOSTIC_MODE
 //#define DEBUG_MODE
@@ -116,11 +112,19 @@ volatile float sparkChargeAngle;             // when to start inductively chargi
 volatile float sparkDischargeAngle;          // when to discharge the coil, chargeAngle + DWELL_TIME [degrees]
 volatile float fuelStartAngle;               // when to start the injection pulse [degrees]
 float currEngineAngle;              // current engine position [degrees]
+int numTachClicks;
 
 
 /***********************************************************
 *                  F U N C T I O N S   
 ***********************************************************/ 
+float getCurrAngle(float angular_speed, unsigned int calib_time){
+    //[degrees] = [degrees/us]  * (  [us]   -     [us]  ) +  [degrees]
+    float angle = angular_speed * (micros() - calib_time) + CALIB_ANGLE;
+    // always keep the engine angle less than 360 degrees
+    return angle >= 360 ? angle - 360 : angle;
+}
+
 float readTemp(struct thermistor therm, int adc_channel){
     // [K] =                                    [C]                        +       [K]                  
     return   thermistorTemp(therm, readADC(adc_channel)*VOLTS_PER_ADC_BIT) + CELSIUS_TO_KELVIN;
@@ -160,25 +164,18 @@ float readTPS(void){
         return ((float)rawTPS - TPS_RAW_MIN) / (TPS_RAW_MAX - TPS_RAW_MIN);
 }
 
-float getCurrAngle(float angular_speed, unsigned int calib_time){
-    //[degrees] = [degrees/us]  * (  [us]   -     [us]  ) +  [degrees]
-    float angle = angular_speed * (micros() - calib_time) + CALIB_ANGLE;
-    // always keep the engine angle less than 360 degrees
-    return angle >= 360 ? angle - 360 : angle;
-}
-
-float injectorPulse(float airVol, float currMAP){
+float injectorPulse(float airVol, float currMAP, float IAT){
     // calculate moles of air inducted into the cylinder
-    // [n]    =   [m^3] * ([kPa]   * [Pa/1kPa]) / ([kg/(mol*K)] * [K] )
-    airMolar  = airVol  * (currMAP * 1E-3)      / (R_CONSTANT   * IATval);
+    // [n]    =   [m^3] * ([kPa]   * [1000 Pa/1kPa]) / ([J/(mol*K)] * [K] )
+    airMolar  = airVol  * (currMAP * 1E3)            / (R_CONSTANT   * IAT);
 
     // calculate moles of fuel to be injected 
     // [g fuel] =  [n air] *  [g/n air]     / [g air / g fuel]
     fuelMass    = airMolar * MOLAR_MASS_AIR / AIR_FUEL_RATIO;
 
     // calculate fuel injection duration in microseconds
-    // [us] =  [g]  * [kg/1E3 g] * [1E6 us/s] / [kg/s]
-    return fuelMass * 1E3 / MASS_FLOW_RATE;     
+    // [us] =  [g]     * [1E6 us/s] / [g/s]
+    return    fuelMass * 1E6        / MASS_FLOW_RATE;     
 }
 
 float timeToStartFueling(float fuelDuration, float angularSpeed, float engineAngle){
@@ -219,7 +216,9 @@ void setup(void){
     // Initialize Variables
     currAngularSpeed = 0;
     calibAngleTime = 0;             
-    lastCalibAngleTime = 0;         
+    lastCalibAngleTime = 0;       
+    currRPM = 0;  
+    numTachClicks = 0;
 
     // set up all interrupts and timers
     attachInterrupt(KILLSWITCH_IN, killswitch_ISR, CHANGE);
@@ -249,9 +248,11 @@ void loop(void){
 
     #ifdef DIAGNOSTIC_MODE
 
+    // Serial stuff and lock
     char serialChar;
     static bool commandLock = 0;
 
+    // Raw ADC reads
     int MAPraw = readADC(MAP_ADC_CHNL);
     int IATraw = readADC(IAT_ADC_CHNL);
     int ECTraw = readADC(ECT_ADC_CHNL);
@@ -265,6 +266,7 @@ void loop(void){
     SERIAL_PORT.println("MAP(raw):  ECT(raw):  IAT(raw):  TPS(raw):  O2(raw):  Test:");
     SERIAL_PORT.println(serialOutBuffer);
 
+    // Calibrated sensor reads
     MAPval = readMAP();
     IATval = readTemp(IAT, IAT_ADC_CHNL);
     ECTval = readTemp(ECT, ECT_ADC_CHNL);
@@ -274,12 +276,22 @@ void loop(void){
     int tachRaw = digitalRead(TACH_IN);
 
     sprintf(serialOutBuffer, "%2f    %2f    %2f    %2f    %2f        %d        %d", 
-    MAPval,(ECTval-CELSIUS_TO_KELVIN), (IATval-CELSIUS_TO_KELVIN), TPSval, killswitch, tachRaw);
+    MAPval, (ECTval-CELSIUS_TO_KELVIN), (IATval-CELSIUS_TO_KELVIN), TPSval, O2val, killswitch, tachRaw);
 
     SERIAL_PORT.println("MAP(kPa):    ECT(C):       IAT(C):       TPS(%):   O2(kg/kg):  KillSW:  Tach:");
     SERIAL_PORT.println(serialOutBuffer);
     SERIAL_PORT.println("\n");
 
+    // RPM debug
+    sprintf(serialOutBuffer, "%2f    %5f     %d         %d       %d", 
+    currRPM, currAngularSpeed, calibAngleTime, lastCalibAngleTime, numTachClicks);
+
+    SERIAL_PORT.println("RPM:    Ang Spd:    recentTime:    lastTime:    numTac:");
+    SERIAL_PORT.println(serialOutBuffer);
+    SERIAL_PORT.println("\n");
+
+
+    // Serial keyboard commands
     if( SERIAL_PORT.available() ){
 
         serialChar = SERIAL_PORT.read();
@@ -301,6 +313,7 @@ void loop(void){
         }
     }
 
+    // Delay so serial port is readable and serial buffer is not overloaded
     delay(1000);
 
     #else
@@ -316,7 +329,11 @@ void loop(void){
             IATval = readTemp(IAT, IAT_ADC_CHNL);
             //ECTval = readECT();
             TPSval = readTPS();
-            O2Val  = readO2();
+            O2val  = readO2();
+
+            #ifdef DEBUG_MODE
+            SERIAL_PORT.println("currState = READ_SENSORS");
+            #endif
 
         break;
 
@@ -324,10 +341,12 @@ void loop(void){
         // flow of the state machine.
         case CALIBRATION:
 
+            #ifdef DEBUG_MODE
+            SERIAL_PORT.println("currState = CALIBRATION");
+            #endif
+
             switch(killswitch){
                 case true:
-                    currRPM = convertToRPM(currAngularSpeed);
-
                     if( revLimit ){
                         if( currRPM < LOWER_REV_LIMIT){
                             revLimit = false;
@@ -377,6 +396,10 @@ void loop(void){
         // enrichment algorithm that usually employs a rich AFR ratio.
         case CRANKING:
 
+            #ifdef DEBUG_MODE
+            SERIAL_PORT.println("currState = CRANKING");
+            #endif
+
             currState = (serialPrintCount == 0 ? SERIAL_OUT : READ_SENSORS); 
 
             if(fuelCycle){
@@ -385,7 +408,7 @@ void loop(void){
                 airVolume =  CRANK_VOL_EFF * ENGINE_DISPLACEMENT;
 
                 // Calculate fuel injector pulse length
-                fuelDuration = injectorPulse(airVolume, MAPval);
+                fuelDuration = injectorPulse(airVolume, MAPval, IATval);
 
                 // update current angular position
                 currEngineAngle = getCurrAngle(currAngularSpeed, calibAngleTime);
@@ -409,6 +432,10 @@ void loop(void){
         // Spark Advance are determined using fuel map lookup tables. 
         case RUNNING:
 
+            #ifdef DEBUG_MODE
+            SERIAL_PORT.println("currState = RUNNING");
+            #endif
+
             currState = (serialPrintCount == 0 ? SERIAL_OUT : READ_SENSORS);
 
             if(fuelCycle){
@@ -420,7 +447,7 @@ void loop(void){
                 airVolume =  volEff * ENGINE_DISPLACEMENT;
     
                 // Calculate fuel injector pulse length
-                fuelDuration = injectorPulse(airVolume, MAPval); 
+                fuelDuration = injectorPulse(airVolume, MAPval, IATval); 
 
                 // update current angular position
                 currEngineAngle = getCurrAngle(currAngularSpeed, calibAngleTime);
@@ -444,6 +471,10 @@ void loop(void){
         // to prevent possible damage to the engine internals / hardware. The engine doesn't fuel or spark.
         case REV_LIMITER:
 
+            #ifdef DEBUG_MODE
+            SERIAL_PORT.println("currState = REV_LIMITER");
+            #endif
+
             currState = (serialPrintCount == 0 ? SERIAL_OUT : READ_SENSORS);
 
             #ifdef DEBUG_MODE
@@ -457,11 +488,15 @@ void loop(void){
         case SERIAL_OUT:
 
             currState = READ_SENSORS;
-        
-            sprintf(serialOutBuffer, "%5f    %3f         %3f      %4f           %5d", 
-                convertToRPM(currAngularSpeed), MAPval, volEff, sparkDischargeAngle, fuelDuration);
 
-            SERIAL_PORT.println("RPM:   MAP(kPa):   VE(%):   SPARK(deg):   FUEL PULSE(us):");
+            #ifdef DEBUG_MODE
+            SERIAL_PORT.println("currState = SERIAL_OUT");
+            #endif
+        
+            sprintf(serialOutBuffer, "%2f     %2f        %2f       %2f       %2f          %5d            %2f", 
+                convertToRPM(currAngularSpeed), MAPval, volEff, IATval, sparkDischargeAngle, fuelDuration, O2val);
+
+            SERIAL_PORT.println("RPM:   MAP(kPa):   VE(%):   SPARK(deg):   FUEL PULSE(us):   O2(kg/kg):");
             SERIAL_PORT.println(serialOutBuffer);
 
         break;
@@ -476,9 +511,32 @@ void loop(void){
 ***********************************************************/
 void tach_ISR(void){
 
+    #ifdef DIAGNOSTIC_MODE
+
+    numTachClicks++;
     lastCalibAngleTime = calibAngleTime;
     calibAngleTime = micros();
-    currAngularSpeed = calcSpeed(calibAngleTime, lastCalibAngleTime, currAngularSpeed);
+    currAngularSpeed = currAngularSpeed = calcSpeed(calibAngleTime, lastCalibAngleTime);
+    currRPM = convertToRPM(currAngularSpeed);
+
+    #else
+
+    lastCalibAngleTime = calibAngleTime;
+    calibAngleTime = micros();
+    //currAngularSpeed = calcSpeed(calibAngleTime, lastCalibAngleTime, currAngularSpeed);
+    currAngularSpeed = calcSpeed(calibAngleTime, lastCalibAngleTime);
+    currRPM = convertToRPM(currAngularSpeed);
+
+    #ifdef DEBUG_MODE
+    SERIAL_PORT.println("currRPM:   currAngSpd:   recentTime:   lastTime:");
+    SERIAL_PORT.print(currRPM);
+    SERIAL_PORT.print("   ");
+    SERIAL_PORT.print(currAngularSpeed, 5);
+    SERIAL_PORT.print("   ");
+    SERIAL_PORT.print(calibAngleTime);
+    SERIAL_PORT.print("   ");
+    SERIAL_PORT.println(lastCalibAngleTime);
+    #endif
 
     // all of the following code assumes one full rotation has occurred (with a single toothed
     // crankshaft, this is true)
@@ -487,6 +545,8 @@ void tach_ISR(void){
     serialPrintCount = (serialPrintCount >= 9 ? serialPrintCount = 0 : serialPrintCount + 1);
 
     currState = CALIBRATION;
+
+    #endif
 }
 
 void killswitch_ISR(void){

@@ -38,8 +38,6 @@
  *  linear regression algorithm, run one time during setup
  *
  */
-#include <Arduino.h>
-
 #ifndef THERMISTOR_H
 #define THERMISTOR_H
 
