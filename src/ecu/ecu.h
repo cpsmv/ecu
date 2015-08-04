@@ -51,7 +51,7 @@
 
 // Cranking / Engagement Parameters
 #define ENGAGE_SPEED    100             // engine's rotational speed must be above this speed to fuel or spark [RPM]
-#define CRANKING_SPEED  500             // below this rotational speed, the engine runs a cranking mode fuel enrichment algorithm [RPM]
+#define CRANKING_SPEED  1000             // below this rotational speed, the engine runs a cranking mode fuel enrichment algorithm [RPM]
 #define UPPER_REV_LIMIT 6000            // above this rotational speed, the engine enacts a rev limit algorithm [RPM]
 #define LOWER_REV_LIMIT 5800            // this is the hysteresis for the rev limit. The engine must fall below this speed to resume normal operation [RPM]
 #define CRANK_VOL_EFF   0.30f           // hardcoded value for enrichment cranking enrichment algorithm [%]
