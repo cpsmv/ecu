@@ -62,14 +62,6 @@
 #define ECT_ADC_CHNL 3
 #define TPS_ADC_CHNL 1
 
-#define STATE_READ_SENSORS 0
-#define STATE_CALIBRATION  1
-#define STATE_CRANKING     2
-#define STATE_RUNNING      3
-#define STATE_REV_LIMITER  4
-#define STATE_SERIAL_OUT   5
-
-
 /***********************************************************
 *             G L O B A L   V A R I A B L E S
 ***********************************************************/ 
@@ -122,6 +114,7 @@ volatile float sparkDischargeAngle;          // when to discharge the coil, char
 volatile float fuelStartAngle;               // when to start the injection pulse [degrees]
 float currEngineAngle;              // current engine position [degrees]
 int numTachClicks;
+volatile float tachResistance;
 
 
 /***********************************************************
@@ -231,7 +224,7 @@ void setup(void){
 
     // set up all interrupts and timers
     attachInterrupt(KILLSWITCH_IN, killswitch_ISR, CHANGE);
-    attachInterrupt(TACH_IN, tach_ISR, FALLING);
+    attachInterrupt(TACH_IN, tach_ISR, RISING);
     SPARK_CHARGE_TIMER.attachInterrupt(chargeSpark_ISR);        
     SPARK_DISCHARGE_TIMER.attachInterrupt(dischargeSpark_ISR);
     FUEL_START_TIMER.attachInterrupt(startFuel_ISR);
@@ -241,8 +234,9 @@ void setup(void){
     SERIAL_PORT.begin(115200);
     serialPrintCount = 1;   // wait 5 cycles before printing any information
 
-    // set up SPI communication to the MCP3304 DAQ
-    initSPI();
+    initSPI();      // set up SPI communication to the MCP3304 DAQ
+    initTach();     // set up Tach circuit
+    tachResistance = setTachResistance( calcTachResistance(CRANKING_SPEED + TACH_SAFETY_MARGIN) );
 
     killswitch = digitalRead(KILLSWITCH_IN);
     fuelCycle = false;          // start on a non-fuel cycle (arbitrary, since no CAM position sensor)
@@ -275,11 +269,11 @@ void loop(void){
         int O2raw  = readADC(O2_ADC_CHNL);
         int channelTest = readADC(7);
 
-        sprintf(serialOutBuffer, "%d  %d  %d  %d  %d  %d", 
+        /*sprintf(serialOutBuffer, "%d  %d  %d  %d  %d  %d", 
         MAPraw, ECTraw, IATraw, TPSraw, O2raw, channelTest);
 
         SERIAL_PORT.println("MAP:  ECT:  IAT:  TPS:  O2:  Test:");
-        SERIAL_PORT.println(serialOutBuffer);
+        SERIAL_PORT.println(serialOutBuffer);*/
 
         // Calibrated sensor reads
         MAPval = readMAP();
@@ -290,10 +284,10 @@ void loop(void){
         killswitch = digitalRead(KILLSWITCH_IN);
         int tachRaw = digitalRead(TACH_IN);
 
-        sprintf(serialOutBuffer, "%2f  %2f  %2f  %2f  %2f   %d   %d", 
-        MAPval, (ECTval-CELSIUS_TO_KELVIN), (IATval-CELSIUS_TO_KELVIN), TPSval, O2val, killswitch, tachRaw);
+        sprintf(serialOutBuffer, "%2f  %2f  %2f  %2f  %2f   %d   %d   %5f", 
+        MAPval, (ECTval-CELSIUS_TO_KELVIN), (IATval-CELSIUS_TO_KELVIN), TPSval, O2val, killswitch, tachRaw, tachResistance);
 
-        SERIAL_PORT.println("MAP:    ECT:       IAT:       TPS:   O2:  KillSW:  Tach:");
+        SERIAL_PORT.println("MAP:    ECT:       IAT:       TPS:   O2:  KillSW:  Tach:  tachR:");
         SERIAL_PORT.println(serialOutBuffer);
         SERIAL_PORT.println("\n");
 
@@ -345,6 +339,7 @@ void loop(void){
         //else if( currState == CALIBRATION ){
         case CALIBRATION:
             switch(killswitch){
+
                 case true:
                     if( revLimit ){
                         if( currRPM < LOWER_REV_LIMIT){
@@ -403,6 +398,8 @@ void loop(void){
 
             currState = (serialPrintCount == 0 ? SERIAL_OUT : READ_SENSORS); 
 
+            tachResistance = setTachResistance( calcTachResistance(CRANKING_SPEED + TACH_SAFETY_MARGIN) );
+
             if(fuelCycle){
                 // calculate volume of air inducted into the cylinder, using hardcoded cranking VE
                 // [m^3]  =    [%]         *        [m^3]         
@@ -435,6 +432,9 @@ void loop(void){
         case RUNNING:
 
             currState = (serialPrintCount == 0 ? SERIAL_OUT : READ_SENSORS);
+
+            //tachResistance = setTachResistance( calcTachResistance(currRPM) - TACH_SAFETY_MARGIN );
+            tachResistance = setTachResistance( calcTachResistance(CRANKING_SPEED + TACH_SAFETY_MARGIN) );
 
             if(fuelCycle){
                 // table lookup for volumetric efficiency 
@@ -471,6 +471,8 @@ void loop(void){
         case REV_LIMITER:
 
             currState = (serialPrintCount == 0 ? SERIAL_OUT : READ_SENSORS);
+
+            tachResistance = setTachResistance( calcTachResistance(LOWER_REV_LIMIT) );
 
             #ifdef DEBUG_MODE
             SERIAL_PORT.println("INFO: rev limiter activated");
@@ -527,10 +529,10 @@ void tach_ISR(void){
         currAngularSpeed = calcSpeed(calibAngleTime, lastCalibAngleTime);
         currRPM = convertToRPM(currAngularSpeed);
 
-        sprintf(serialOutBuffer, "%2f    %5f     %d         %d       %d", 
-        currRPM, currAngularSpeed, calibAngleTime, lastCalibAngleTime, numTachClicks);
+        sprintf(serialOutBuffer, "%2f    %5f     %d         %d       %d      %5f", 
+        currRPM, currAngularSpeed, calibAngleTime, lastCalibAngleTime, numTachClicks, tachResistance);
 
-        SERIAL_PORT.println("RPM:    Ang Spd:    recentTime:    lastTime:    numTac:");
+        SERIAL_PORT.println("RPM:    Ang Spd:    recentTime:    lastTime:    numTac:    tachR:");
         SERIAL_PORT.println(serialOutBuffer);
         SERIAL_PORT.println("\n");
 

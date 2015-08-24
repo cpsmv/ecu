@@ -27,6 +27,7 @@
 #include "tuning.h"
 #include "spi_adc.h"
 #include "thermistor.h"
+#include "tach.h"
 
 /***********************************************************
 *                      D E F I N E S
@@ -60,6 +61,9 @@
 // TPS Sensor
 #define TPS_RAW_MIN 301.0f
 #define TPS_RAW_MAX 3278.0f
+
+// Tach Sensor
+#define TACH_SAFETY_MARGIN 200
 
 
 /***********************************************************

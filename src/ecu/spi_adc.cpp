@@ -37,23 +37,35 @@
 
 // set up SPI communication to the MCP3304 DAQ
 void initSPI(void){
-    SPI.begin(CHIP_SELECT_PIN);
-    SPI.setClockDivider(CHIP_SELECT_PIN, SPI_CLK_DIV);  // SPI clock: 2MHz (84MHz/42)
-    SPI.setDataMode(CHIP_SELECT_PIN, SPI_MODE0);        // SPI 0,0 as per MCP330x datasheet 
-    SPI.setBitOrder(CHIP_SELECT_PIN, MSBFIRST);         // MSB mode, per MCP330x datasheet
+
+    pinMode(CHIP_SELECT_PIN, OUTPUT);
+    digitalWrite(CHIP_SELECT_PIN, HIGH);
+
+    SPI.setClockDivider(SPI_CLK_DIV);  // SPI clock: 2MHz (84MHz/42)
+    SPI.setDataMode(SPI_MODE0);        // SPI 0,0 as per MCP330x datasheet 
+    SPI.setBitOrder(MSBFIRST);         // MSB mode, per MCP330x datasheet
+    SPI.begin();
+
 }
 
 // return the sampled analog value of the specified channel 
 // operates the MCP3304 in single-ended mode
 int readADC(int readChannel){
+
+    digitalWrite(CHIP_SELECT_PIN, LOW);
+
     // send the first command byte
-    SPI.transfer(CHIP_SELECT_PIN, B00001100 | (readChannel >> 1), SPI_CONTINUE );
+    //SPI.transfer(B00001100 | (readChannel >> 1), SPI_CONTINUE );
+    SPI.transfer(B00001100 | (readChannel >> 1));
 
     // send the second command byte and obtain the first data byte
-    int byteMS = SPI.transfer(CHIP_SELECT_PIN, B00000000 | (readChannel << 7), SPI_CONTINUE );
+    //int byteMS = SPI.transfer(B00000000 | (readChannel << 7), SPI_CONTINUE );
+    int byteMS = SPI.transfer(B00000000 | (readChannel << 7) );
 
     // send a don't care byte and obtain the second data byte
-    int byteLS = SPI.transfer(CHIP_SELECT_PIN, B00000000);
+    int byteLS = SPI.transfer(B00000000);
+
+    digitalWrite(CHIP_SELECT_PIN, HIGH);
 
     return ( ((byteMS & B00001111) * 256) + byteLS );
 }
