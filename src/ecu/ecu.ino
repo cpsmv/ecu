@@ -51,6 +51,8 @@
 #define SPARK_CHARGE_TIMER      Timer2
 #define SPARK_DISCHARGE_TIMER   Timer3
 #define STATE_DEBUG_TIMER       Timer4
+#define TACH_DEBOUNCE_TIMER     Timer5
+#define NUM_TACH_DEBOUNCE_CHECKS 3
 
 // Serial
 #define SERIAL_PORT Serial
@@ -115,6 +117,8 @@ volatile float fuelStartAngle;               // when to start the injection puls
 float currEngineAngle;              // current engine position [degrees]
 int numTachClicks;
 volatile float tachResistance;
+
+int debounce;
 
 
 /***********************************************************
@@ -189,6 +193,7 @@ float timeToStartFueling(float fuelDuration, float angularSpeed, float engineAng
     //                      (  [degrees]    -    [degrees]   ) /   [degrees/us]   
     return ( (fuelStartAngle - engineAngle) / angularSpeed );
 }
+
 float timetoChargeSpark(float sparkDischargeAngle, float currAngularSpeed, float currEngineAngle){
 
     sparkChargeAngle = sparkDischargeAngle - DWELL_TIME * currAngularSpeed; // calculate angle at which to begin charging the spark
@@ -196,6 +201,47 @@ float timetoChargeSpark(float sparkDischargeAngle, float currAngularSpeed, float
     // determine when [in us] to start charging the coil and set a timer appropriately
     //        (   [degrees]    -    [degrees]   ) /    [degrees/us]
     return ( (sparkChargeAngle - currEngineAngle) / currAngularSpeed ); 
+}
+
+
+void updateTach(){
+
+    #ifdef DIAGNOSTIC_MODE
+
+        numTachClicks++;
+        lastCalibAngleTime = calibAngleTime;
+        calibAngleTime = micros();
+        currAngularSpeed = calcSpeed(calibAngleTime, lastCalibAngleTime);
+        currRPM = convertToRPM(currAngularSpeed);
+
+        sprintf(serialOutBuffer, "%2f    %5f     %d         %d       %d      %5f", 
+        currRPM, currAngularSpeed, calibAngleTime, lastCalibAngleTime, numTachClicks, tachResistance);
+
+        SERIAL_PORT.println("RPM:    Ang Spd:    recentTime:    lastTime:    numTac:    tachR:");
+        SERIAL_PORT.println(serialOutBuffer);
+        SERIAL_PORT.println("\n");
+
+    #else // ECU state machine
+
+        numTachClicks++;
+        lastCalibAngleTime = calibAngleTime;
+        calibAngleTime = micros();
+        currAngularSpeed = calcSpeed(calibAngleTime, lastCalibAngleTime);
+        currRPM = convertToRPM(currAngularSpeed);
+
+        #ifdef DEBUG_MODE
+        Serial.println(numTachClicks);
+        #endif
+
+        // all of the following code assumes one full rotation has occurred (with a single toothed
+        // crankshaft, this is true)
+
+        fuelCycle = !fuelCycle;
+        serialPrintCount = (serialPrintCount >= 9 ? serialPrintCount = 0 : serialPrintCount + 1);
+
+        currState = CALIBRATION;
+
+    #endif 
 }
 
 
@@ -224,7 +270,7 @@ void setup(void){
 
     // set up all interrupts and timers
     attachInterrupt(KILLSWITCH_IN, killswitch_ISR, CHANGE);
-    attachInterrupt(TACH_IN, tach_ISR, RISING);
+    attachInterrupt(TACH_IN, hallEffect_ISR, FALLING);
     SPARK_CHARGE_TIMER.attachInterrupt(chargeSpark_ISR);        
     SPARK_DISCHARGE_TIMER.attachInterrupt(dischargeSpark_ISR);
     FUEL_START_TIMER.attachInterrupt(startFuel_ISR);
@@ -235,8 +281,8 @@ void setup(void){
     serialPrintCount = 1;   // wait 5 cycles before printing any information
 
     initSPI();      // set up SPI communication to the MCP3304 DAQ
-    initTach();     // set up Tach circuit
-    tachResistance = setTachResistance( calcTachResistance(CRANKING_SPEED + TACH_SAFETY_MARGIN) );
+    //initTach();     // set up Tach circuit
+    //tachResistance = setTachResistance( calcTachResistance(CRANKING_SPEED + TACH_SAFETY_MARGIN) );
 
     killswitch = digitalRead(KILLSWITCH_IN);
     fuelCycle = false;          // start on a non-fuel cycle (arbitrary, since no CAM position sensor)
@@ -244,10 +290,10 @@ void setup(void){
     currState = READ_SENSORS;   // start off by reading sensors
 
     // state machine DEBUG_MODE timer, every 1ms
-    #ifdef DEBUG_MODE
+    /*#ifdef DEBUG_MODE
     STATE_DEBUG_TIMER.attachInterrupt(stateDebug_ISR);
     STATE_DEBUG_TIMER.start(1000000);
-    #endif
+    #endif*/
 }
 
 /***********************************************************
@@ -396,9 +442,11 @@ void loop(void){
         // else if( currState == CRANKING ){
         case CRANKING:
 
-            currState = (serialPrintCount == 0 ? SERIAL_OUT : READ_SENSORS); 
+            //currState = (serialPrintCount == 0 ? SERIAL_OUT : READ_SENSORS); 
 
-            tachResistance = setTachResistance( calcTachResistance(CRANKING_SPEED + TACH_SAFETY_MARGIN) );
+            currState = READ_SENSORS;
+
+            //tachResistance = setTachResistance( calcTachResistance(CRANKING_SPEED + TACH_SAFETY_MARGIN) );
 
             if(fuelCycle){
                 // calculate volume of air inducted into the cylinder, using hardcoded cranking VE
@@ -431,10 +479,12 @@ void loop(void){
         //else if( currState == RUNNING ){
         case RUNNING:
 
-            currState = (serialPrintCount == 0 ? SERIAL_OUT : READ_SENSORS);
+            //currState = (serialPrintCount == 0 ? SERIAL_OUT : READ_SENSORS);
+
+            currState = READ_SENSORS;
 
             //tachResistance = setTachResistance( calcTachResistance(currRPM) - TACH_SAFETY_MARGIN );
-            tachResistance = setTachResistance( calcTachResistance(CRANKING_SPEED + TACH_SAFETY_MARGIN) );
+            //tachResistance = setTachResistance( calcTachResistance(CRANKING_SPEED + TACH_SAFETY_MARGIN) );
 
             if(fuelCycle){
                 // table lookup for volumetric efficiency 
@@ -470,9 +520,11 @@ void loop(void){
         //else if( currState == REV_LIMITER ){
         case REV_LIMITER:
 
-            currState = (serialPrintCount == 0 ? SERIAL_OUT : READ_SENSORS);
+            //currState = (serialPrintCount == 0 ? SERIAL_OUT : READ_SENSORS);
 
-            tachResistance = setTachResistance( calcTachResistance(LOWER_REV_LIMIT) );
+            currState = READ_SENSORS;
+
+            //tachResistance = setTachResistance( calcTachResistance(LOWER_REV_LIMIT) );
 
             #ifdef DEBUG_MODE
             SERIAL_PORT.println("INFO: rev limiter activated");
@@ -519,44 +571,40 @@ void loop(void){
 /***********************************************************
 *   I N T E R R U P T   S E R V I C E    R O U T I N E S
 ***********************************************************/
-void tach_ISR(void){
+void hallEffect_ISR(void){
+    detachInterrupt(TACH_IN);   // disable hall effect interrupts until debouncing completed
+    debounce = 0;
 
-    #ifdef DIAGNOSTIC_MODE
+    //Serial.println("hf");
 
-        numTachClicks++;
-        lastCalibAngleTime = calibAngleTime;
-        calibAngleTime = micros();
-        currAngularSpeed = calcSpeed(calibAngleTime, lastCalibAngleTime);
-        currRPM = convertToRPM(currAngularSpeed);
+    TACH_DEBOUNCE_TIMER.attachInterrupt(tachDebounce_ISR);
+    TACH_DEBOUNCE_TIMER.start(1);
+}
 
-        sprintf(serialOutBuffer, "%2f    %5f     %d         %d       %d      %5f", 
-        currRPM, currAngularSpeed, calibAngleTime, lastCalibAngleTime, numTachClicks, tachResistance);
+void tachDebounce_ISR(void){
 
-        SERIAL_PORT.println("RPM:    Ang Spd:    recentTime:    lastTime:    numTac:    tachR:");
-        SERIAL_PORT.println(serialOutBuffer);
-        SERIAL_PORT.println("\n");
+    TACH_DEBOUNCE_TIMER.stop();
 
-    #else // ECU state machine
+    if( digitalRead(TACH_IN) == LOW){
 
-        numTachClicks++;
-        lastCalibAngleTime = calibAngleTime;
-        calibAngleTime = micros();
-        currAngularSpeed = calcSpeed(calibAngleTime, lastCalibAngleTime);
-        currRPM = convertToRPM(currAngularSpeed);
+        debounce++;
 
-        #ifdef DEBUG_MODE
-        Serial.println(numTachClicks);
-        #endif
+        //Serial.print("d");
+        //Serial.println(debounce);
 
-        // all of the following code assumes one full rotation has occurred (with a single toothed
-        // crankshaft, this is true)
-
-        fuelCycle = !fuelCycle;
-        serialPrintCount = (serialPrintCount >= 9 ? serialPrintCount = 0 : serialPrintCount + 1);
-
-        currState = CALIBRATION;
-
-    #endif 
+        if(debounce >= NUM_TACH_DEBOUNCE_CHECKS){
+            updateTach();
+            attachInterrupt(TACH_IN, hallEffect_ISR, FALLING);
+        }
+        else{
+            TACH_DEBOUNCE_TIMER.start(1);
+            //Serial.println("dgo");
+        }
+    }
+    else{
+        attachInterrupt(TACH_IN, hallEffect_ISR, FALLING);
+        //Serial.println("df");
+    }
 }
 
 void killswitch_ISR(void){

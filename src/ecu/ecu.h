@@ -27,7 +27,7 @@
 #include "tuning.h"
 #include "spi_adc.h"
 #include "thermistor.h"
-#include "tach.h"
+//#include "tach.h"
 
 /***********************************************************
 *                      D E F I N E S
@@ -44,7 +44,7 @@
 #define MAX_ADC_VAL 4095.0f
 
 // Engine Parameters
-#define DWELL_TIME 4000                 // time required to inductively charge the spark coil [us]
+#define DWELL_TIME 3200                 // time required to inductively charge the spark coil [us]
 #define CALIB_ANGLE 30                  // tach sensor position from Top Dead Center, in direction of crankshaft rotation [degrees]
 #define FUEL_END_ANGLE 120              // when to stop fueling; set for during the intake stroke [degrees]
 #define ENGINE_DISPLACEMENT 35.8E-6     // GX35 displacement is 35.8cc, converted to m^3 [1cc * 1E-6 = m^3]
