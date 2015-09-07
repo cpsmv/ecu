@@ -30,8 +30,8 @@
 *                                    D E F I N E S
 ******************************************************************************************/
 // Mode Definitions
-//#define DIAGNOSTIC_MODE
-#define DEBUG_MODE
+#define DIAGNOSTIC_MODE
+//#define DEBUG_MODE
 
 // Pin Definitions 
 #define KILLSWITCH_IN   9
@@ -46,9 +46,8 @@
 #define DAQ_CS          4
 
 // Timers
-#define FUEL_START_TIMER        Timer0
-#define FUEL_STOP_TIMER         Timer1
-#define SPARK_CHARGE_TIMER      Timer2
+#define FUEL_TIMER          Timer0
+#define SPARK_TIMER         Timer2
 #define SPARK_DISCHARGE_TIMER   Timer3
 #define STATE_DEBUG_TIMER       Timer4
 #define TACH_DEBOUNCE_TIMER     Timer5
@@ -111,14 +110,14 @@ float airMolar;                     // moles of inducted air [mols]
 float fuelMass;                     // mass of fuel to be injected [g]
 float fuelDuration;                 // length of injection pulse [us]
 float fuelDurationDegrees;          // length of injection pulse [degrees]
-volatile float sparkChargeAngle;             // when to start inductively charging the spark coil [degrees]
-volatile float sparkDischargeAngle;          // when to discharge the coil, chargeAngle + DWELL_TIME [degrees]
-volatile float fuelStartAngle;               // when to start the injection pulse [degrees]
+volatile float sparkChargeAngle;    // when to start inductively charging the spark coil [degrees]
+volatile float sparkDischargeAngle; // when to discharge the coil, chargeAngle + DWELL_TIME [degrees]
+volatile float fuelStartAngle;      // when to start the injection pulse [degrees]
 float currEngineAngle;              // current engine position [degrees]
-int numTachClicks;
-volatile float tachResistance;
-
-int debounce;
+int numTachClicks;                  // debug variable to help keep track of tach signal
+volatile bool injectorOpen;         // whether or not the fuel injector is currently open (TRUE = open, FALSE = closed)
+volatile bool coilCharging;         // whether of not the spark coil is currently charging (TRUE = charging, FALSE, = not-charging)
+int debounce;                       // how many times a FALLING edge-detection on the hall effect signal has been debounced
 
 
 /***********************************************************
@@ -214,8 +213,8 @@ void updateTach(){
         currAngularSpeed = calcSpeed(calibAngleTime, lastCalibAngleTime);
         currRPM = convertToRPM(currAngularSpeed);
 
-        sprintf(serialOutBuffer, "%2f    %5f     %d         %d       %d      %5f", 
-        currRPM, currAngularSpeed, calibAngleTime, lastCalibAngleTime, numTachClicks, tachResistance);
+        sprintf(serialOutBuffer, "%2f    %5f     %d         %d       %d", 
+        currRPM, currAngularSpeed, calibAngleTime, lastCalibAngleTime, numTachClicks);
 
         SERIAL_PORT.println("RPM:    Ang Spd:    recentTime:    lastTime:    numTac:    tachR:");
         SERIAL_PORT.println(serialOutBuffer);
@@ -271,23 +270,21 @@ void setup(void){
     // set up all interrupts and timers
     attachInterrupt(KILLSWITCH_IN, killswitch_ISR, CHANGE);
     attachInterrupt(TACH_IN, hallEffect_ISR, FALLING);
-    SPARK_CHARGE_TIMER.attachInterrupt(chargeSpark_ISR);        
-    SPARK_DISCHARGE_TIMER.attachInterrupt(dischargeSpark_ISR);
-    FUEL_START_TIMER.attachInterrupt(startFuel_ISR);
-    FUEL_STOP_TIMER.attachInterrupt(stopFuel_ISR); 
+    SPARK_TIMER.attachInterrupt(spark_ISR);        
+    FUEL_TIMER.attachInterrupt(fuel_ISR);
 
     // start Serial communication
     SERIAL_PORT.begin(115200);
     serialPrintCount = 1;   // wait 5 cycles before printing any information
 
     initSPI();      // set up SPI communication to the MCP3304 DAQ
-    //initTach();     // set up Tach circuit
-    //tachResistance = setTachResistance( calcTachResistance(CRANKING_SPEED + TACH_SAFETY_MARGIN) );
 
     killswitch = digitalRead(KILLSWITCH_IN);
     fuelCycle = false;          // start on a non-fuel cycle (arbitrary, since no CAM position sensor)
     revLimit = false;
     currState = READ_SENSORS;   // start off by reading sensors
+    injectorOpen = false;       //           by not injecting fuel
+    coilCharging = false;       //           by not charging the spark coil
 
     // state machine DEBUG_MODE timer, every 1ms
     /*#ifdef DEBUG_MODE
@@ -330,8 +327,8 @@ void loop(void){
         killswitch = digitalRead(KILLSWITCH_IN);
         int tachRaw = digitalRead(TACH_IN);
 
-        sprintf(serialOutBuffer, "%2f  %2f  %2f  %2f  %2f   %d   %d   %5f", 
-        MAPval, (ECTval-CELSIUS_TO_KELVIN), (IATval-CELSIUS_TO_KELVIN), TPSval, O2val, killswitch, tachRaw, tachResistance);
+        sprintf(serialOutBuffer, "%2f  %2f  %2f  %2f  %2f   %d   %d", 
+        MAPval, (ECTval-CELSIUS_TO_KELVIN), (IATval-CELSIUS_TO_KELVIN), TPSval, O2val, killswitch, tachRaw);
 
         SERIAL_PORT.println("MAP:    ECT:       IAT:       TPS:   O2:  KillSW:  Tach:  tachR:");
         SERIAL_PORT.println(serialOutBuffer);
@@ -348,12 +345,12 @@ void loop(void){
             }
             else if(serialChar == 's' && commandLock){
                 SERIAL_PORT.println("Performing spark ignition event test in 2s.");
-                SPARK_CHARGE_TIMER.start(2000000);
+                SPARK_TIMER.start(2000000);
                 commandLock = false;
             }
             else if(serialChar == 'f' && commandLock){
                 SERIAL_PORT.println("Performing fuel ignition pulse test in 2s.");
-                FUEL_START_TIMER.start(2000000);
+                FUEL_TIMER.start(2000000);
                 fuelDuration = 10000;
                 commandLock = false;
             }
@@ -442,11 +439,7 @@ void loop(void){
         // else if( currState == CRANKING ){
         case CRANKING:
 
-            //currState = (serialPrintCount == 0 ? SERIAL_OUT : READ_SENSORS); 
-
-            currState = READ_SENSORS;
-
-            //tachResistance = setTachResistance( calcTachResistance(CRANKING_SPEED + TACH_SAFETY_MARGIN) );
+            currState = (serialPrintCount == 0 ? SERIAL_OUT : READ_SENSORS); 
 
             if(fuelCycle){
                 // calculate volume of air inducted into the cylinder, using hardcoded cranking VE
@@ -460,7 +453,7 @@ void loop(void){
                 currEngineAngle = getCurrAngle(currAngularSpeed, calibAngleTime);
 
                 // calculate and set the time to start injecting fuel
-                FUEL_START_TIMER.start( timeToStartFueling(fuelDuration, currAngularSpeed, currEngineAngle) );
+                FUEL_TIMER.start( timeToStartFueling(fuelDuration, currAngularSpeed, currEngineAngle) );
             }
             // find out at what angle to begin/end charging the spark
             sparkDischargeAngle = TDC - CRANK_SPARK_ADV;    // hardcoded cranking spark advance angle
@@ -469,7 +462,7 @@ void loop(void){
             currEngineAngle = getCurrAngle(currAngularSpeed, calibAngleTime);
 
             // calculate and set the time to start charging the spark coil
-            SPARK_CHARGE_TIMER.start( timetoChargeSpark(sparkDischargeAngle, currAngularSpeed, currEngineAngle) );
+            SPARK_TIMER.start( timetoChargeSpark(sparkDischargeAngle, currAngularSpeed, currEngineAngle) );
 
             break;  // state machine case CRANKING
         //}
@@ -479,12 +472,7 @@ void loop(void){
         //else if( currState == RUNNING ){
         case RUNNING:
 
-            //currState = (serialPrintCount == 0 ? SERIAL_OUT : READ_SENSORS);
-
-            currState = READ_SENSORS;
-
-            //tachResistance = setTachResistance( calcTachResistance(currRPM) - TACH_SAFETY_MARGIN );
-            //tachResistance = setTachResistance( calcTachResistance(CRANKING_SPEED + TACH_SAFETY_MARGIN) );
+            currState = (serialPrintCount == 0 ? SERIAL_OUT : READ_SENSORS);
 
             if(fuelCycle){
                 // table lookup for volumetric efficiency 
@@ -501,7 +489,7 @@ void loop(void){
                 currEngineAngle = getCurrAngle(currAngularSpeed, calibAngleTime);
 
                 // calculate and set the time to start injecting fuel
-                FUEL_START_TIMER.start( timeToStartFueling(fuelDuration, currAngularSpeed, currEngineAngle) );
+                FUEL_TIMER.start( timeToStartFueling(fuelDuration, currAngularSpeed, currEngineAngle) );
             }
 
             // find out at what angle to begin charging the spark coil
@@ -511,7 +499,7 @@ void loop(void){
             currEngineAngle = getCurrAngle(currAngularSpeed, calibAngleTime);
             
             // calculate and set the time to start charging the spark coil
-            SPARK_CHARGE_TIMER.start( timetoChargeSpark(sparkDischargeAngle, currAngularSpeed, currEngineAngle) );
+            SPARK_TIMER.start( timetoChargeSpark(sparkDischargeAngle, currAngularSpeed, currEngineAngle) );
 
             break;  // state machine case RUNNING
         //}
@@ -520,11 +508,7 @@ void loop(void){
         //else if( currState == REV_LIMITER ){
         case REV_LIMITER:
 
-            //currState = (serialPrintCount == 0 ? SERIAL_OUT : READ_SENSORS);
-
-            currState = READ_SENSORS;
-
-            //tachResistance = setTachResistance( calcTachResistance(LOWER_REV_LIMIT) );
+            currState = (serialPrintCount == 0 ? SERIAL_OUT : READ_SENSORS);
 
             #ifdef DEBUG_MODE
             SERIAL_PORT.println("INFO: rev limiter activated");
@@ -611,50 +595,57 @@ void killswitch_ISR(void){
     killswitch = digitalRead(KILLSWITCH_IN);
 }
 
-void chargeSpark_ISR(void){
-    SPARK_CHARGE_TIMER.stop();
-    // start chargine coil
-    digitalWrite(SPARK_OUT, HIGH);
-    // set discharge timer for dwell time
-    SPARK_DISCHARGE_TIMER.start(DWELL_TIME);
+void spark_ISR(void){
+    switch(coilCharging){
+        case false:                         // start charging coil if currently off
+            SPARK_TIMER.stop();             // stop timer
+            digitalWrite(SPARK_OUT, HIGH);  // charge coil
+            SPARK_TIMER.start(DWELL_TIME);  // set spark timer for coil dwell time
+            coilCharging = true;
 
-    #ifdef DIAGNOSTIC_MODE
-    SERIAL_PORT.println("Charging spark.");
-    #endif
+            #ifdef DIAGNOSTIC_MODE
+            SERIAL_PORT.println("Charging spark.");
+            #endif
+        break;
 
+        case true:                          // stop charging coil if currently on
+            digitalWrite(SPARK_OUT, LOW);   // discharge coil
+            SPARK_TIMER.stop();             // stop timer
+            coilCharging = false;              
+
+            #ifdef DIAGNOSTIC_MODE
+            SERIAL_PORT.println("Discharging spark.");
+            #endif
+        break;
+    }
 }
 
-void dischargeSpark_ISR(void){
-    // discharge coil
-    digitalWrite(SPARK_OUT, LOW);
-    SPARK_DISCHARGE_TIMER.stop();
+void fuel_ISR(void){
 
-    #ifdef DIAGNOSTIC_MODE
-    SERIAL_PORT.println("Discharging spark.");
-    #endif
+    switch(injectorOpen){
+        case false:                         // start injecting fuel if the injector is off
+            FUEL_TIMER.stop();              // stop fuel timer
+            digitalWrite(FUEL_OUT, HIGH);   // start injecting fuel
+            FUEL_TIMER.start(fuelDuration); // set discharge timer for dwell time
+            injectorOpen = true;
+
+            #ifdef DIAGNOSTIC_MODE
+            SERIAL_PORT.println("Starting fuel pulse for 10ms.");
+            #endif
+        break;
+
+        case true:                          // stop injectoring fuel if currently on
+            digitalWrite(FUEL_OUT, LOW);    // stop injecting fuel
+            FUEL_TIMER.stop();              // stop fuel timer
+            injectorOpen = false;          
+
+            #ifdef DIAGNOSTIC_MODE
+            SERIAL_PORT.println("Ending fuel pulse.");
+            #endif
+        break;
+    }
 }
 
-void startFuel_ISR(void){
-    FUEL_START_TIMER.stop();
-    // start injecting fuel
-    digitalWrite(FUEL_OUT, HIGH);
-    // set discharge timer for dwell time
-    FUEL_STOP_TIMER.start(fuelDuration);
-
-    #ifdef DIAGNOSTIC_MODE
-    SERIAL_PORT.println("Starting fuel pulse for 10ms.");
-    #endif
-}
-
-void stopFuel_ISR(void){
-    // stop injecting fuel
-    digitalWrite(FUEL_OUT, LOW);
-    FUEL_STOP_TIMER.stop();
-
-    #ifdef DIAGNOSTIC_MODE
-    SERIAL_PORT.println("Ending fuel pulse.");
-    #endif
-}
 
 #ifdef DEBUG_MODE
 void stateDebug_ISR(void){
