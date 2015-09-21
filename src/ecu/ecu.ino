@@ -30,8 +30,8 @@
 *                                    D E F I N E S
 ******************************************************************************************/
 // Mode Definitions
-#define DIAGNOSTIC_MODE
-//#define DEBUG_MODE
+//#define DIAGNOSTIC_MODE
+#define DEBUG_MODE
 
 // Pin Definitions 
 #define KILLSWITCH_IN   9
@@ -51,7 +51,7 @@
 #define SPARK_DISCHARGE_TIMER   Timer3
 #define STATE_DEBUG_TIMER       Timer4
 #define TACH_DEBOUNCE_TIMER     Timer5
-#define NUM_TACH_DEBOUNCE_CHECKS 3
+#define NUM_TACH_DEBOUNCE_CHECKS 5
 
 // Serial
 #define SERIAL_PORT Serial
@@ -216,9 +216,8 @@ void updateTach(){
         sprintf(serialOutBuffer, "%2f    %5f     %d         %d       %d", 
         currRPM, currAngularSpeed, calibAngleTime, lastCalibAngleTime, numTachClicks);
 
-        SERIAL_PORT.println("RPM:    Ang Spd:    recentTime:    lastTime:    numTac:    tachR:");
         SERIAL_PORT.println(serialOutBuffer);
-        SERIAL_PORT.println("\n");
+        SERIAL_PORT.println(" ");
 
     #else // ECU state machine
 
@@ -229,7 +228,9 @@ void updateTach(){
         currRPM = convertToRPM(currAngularSpeed);
 
         #ifdef DEBUG_MODE
-        Serial.println(numTachClicks);
+        SERIAL_PORT.print(numTachClicks);
+        SERIAL_PORT.print(" ");
+        SERIAL_PORT.println(currRPM);
         #endif
 
         // all of the following code assumes one full rotation has occurred (with a single toothed
@@ -312,12 +313,6 @@ void loop(void){
         int O2raw  = readADC(O2_ADC_CHNL);
         int channelTest = readADC(7);
 
-        /*sprintf(serialOutBuffer, "%d  %d  %d  %d  %d  %d", 
-        MAPraw, ECTraw, IATraw, TPSraw, O2raw, channelTest);
-
-        SERIAL_PORT.println("MAP:  ECT:  IAT:  TPS:  O2:  Test:");
-        SERIAL_PORT.println(serialOutBuffer);*/
-
         // Calibrated sensor reads
         MAPval = readMAP();
         IATval = readTemp(IAT, IAT_ADC_CHNL);
@@ -389,7 +384,7 @@ void loop(void){
                             revLimit = false;
                             currState = RUNNING;
                             #ifdef DEBUG_MODE
-                            SERIAL_PORT.println("INFO: rev limiter deactivated");
+                            SERIAL_PORT.println("INFO: rev-");
                             #endif
                         }
                         else currState = READ_SENSORS;
@@ -414,16 +409,16 @@ void loop(void){
             #ifdef DEBUG_MODE
             switch(currState){
                 case READ_SENSORS:
-                    SERIAL_PORT.println("INFO: to READ_SENSORS");
+                    SERIAL_PORT.println("READ_SENSORS");
                     break;  // print case READ_SENSORS
                 case CRANKING:
-                    SERIAL_PORT.println("INFO: to CRANKING");
+                    SERIAL_PORT.println("CRANKING");
                     break;  // print case CRANKING
                 case RUNNING:
-                    SERIAL_PORT.println("INFO: to RUNNING");
+                    SERIAL_PORT.println("RUNNING");
                     break;  // print case RUNNING
                 case REV_LIMITER:
-                    SERIAL_PORT.println("INFO: to REV_LIMITER");
+                    SERIAL_PORT.println("REV_LIMITER");
                     break;  // print case REV_LIMITER
                 //default:
                     //SERIAL_PORT.println("INFO: state machine to READ_SENSORS");
@@ -511,7 +506,7 @@ void loop(void){
             currState = (serialPrintCount == 0 ? SERIAL_OUT : READ_SENSORS);
 
             #ifdef DEBUG_MODE
-            SERIAL_PORT.println("INFO: rev limiter activated");
+            SERIAL_PORT.println("INFO: rev+");
             #endif
 
             revLimit = true;
@@ -524,13 +519,11 @@ void loop(void){
 
             currState = READ_SENSORS;
         
-            //sprintf(serialOutBuffer, "%1f     %2f        %2f       %2f       %2f          %5d            %2f", 
+            //sprintf(serialOutBuffer, "%1f %2f %2f %2f %2f %5d %2f", 
             //    currRPM, MAPval, volEff, IATval, sparkDischargeAngle, fuelDuration, O2val);
 
-            SERIAL_PORT.println("RPM:     MAP:     VE:     SPARK:     FUEL:     O2:");
-            SERIAL_PORT.print(currRPM);
-            SERIAL_PORT.print("  ");
-            SERIAL_PORT.print(MAPval);
+            sprintf(serialOutBuffer, "%2f %2f %2f", fuelDuration, sparkDischargeAngle, MAPval);
+            SERIAL_PORT.println(serialOutBuffer);
 
             break;  // state machine case SERIAL_OUT
         //}
@@ -604,7 +597,11 @@ void spark_ISR(void){
             coilCharging = true;
 
             #ifdef DIAGNOSTIC_MODE
-            SERIAL_PORT.println("Charging spark.");
+            SERIAL_PORT.print("Charging spark. ");
+            #endif
+
+            #ifdef DEBUG_MODE
+            SERIAL_PORT.print("Charging spark. ");
             #endif
         break;
 
@@ -614,6 +611,10 @@ void spark_ISR(void){
             coilCharging = false;              
 
             #ifdef DIAGNOSTIC_MODE
+            SERIAL_PORT.println("Discharging spark.");
+            #endif
+
+            #ifdef DEBUG_MODE
             SERIAL_PORT.println("Discharging spark.");
             #endif
         break;
